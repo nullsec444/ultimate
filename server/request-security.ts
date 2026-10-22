@@ -38,8 +38,8 @@ export async function admit(
   const { host, origin } = request.headers
   if (
     !proxied(request.headers) &&
-    loopbackAuthority(host, port) &&
-    (!origin || loopbackOrigin(origin, port))
+    (loopbackAuthority(host, port) || bridgeAuthority(host)) &&
+    (!origin || loopbackOrigin(origin, port) || bridgeOrigin(origin))
   )
     return true
   const site = request.headers['sec-fetch-site']
@@ -105,6 +105,22 @@ export function loopbackAuthority(authority: string | undefined, port: string) {
       !url.password &&
       url.pathname === '/'
     )
+  } catch {
+    return false
+  }
+}
+/**
+ * `ULTIMATE_BRIDGE` (`host:port`) is the supervisor's second listener on a private network address. The network and
+ * the supervisor's `ULTIMATE_BRIDGE_ALLOW` address list are its boundary, so its authority is trusted like loopback.
+ */
+const bridge = process.env.ULTIMATE_BRIDGE
+export function bridgeAuthority(authority: string | undefined) {
+  return !!bridge && authority === bridge
+}
+export function bridgeOrigin(origin: string) {
+  try {
+    const url = new URL(origin)
+    return ['http:', 'https:'].includes(url.protocol) && bridgeAuthority(url.host) && url.pathname === '/'
   } catch {
     return false
   }

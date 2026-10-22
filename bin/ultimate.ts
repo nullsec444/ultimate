@@ -221,6 +221,35 @@ const publicUrl = `http://127.0.0.1:${publicPort}`
 await lock.update({ pid: process.pid, port: address.port, project: projectRoot })
 display.url(publicUrl)
 
+// The bridge: the same proxy on a private network address (`ULTIMATE_BRIDGE=host:port`), open only to the addresses
+// in `ULTIMATE_BRIDGE_ALLOW`. Retries until the address exists, since a VPN interface can come up after the service.
+const bridge = process.env.ULTIMATE_BRIDGE
+const bridgeAllow = new Set(
+  (process.env.ULTIMATE_BRIDGE_ALLOW ?? '').split(',').map((entry) => entry.trim()).filter(Boolean),
+)
+const bridgeServer = createServer((socket) => {
+  if (!bridgeAllow.has(socket.remoteAddress?.replace(/^::ffff:/, '') ?? '')) return socket.destroy()
+  sockets.add(socket)
+  socket.on('error', () => {})
+  socket.on('close', () => {
+    sockets.delete(socket)
+    pending.delete(socket)
+  })
+  route(socket)
+})
+if (bridge) {
+  const at = bridge.lastIndexOf(':')
+  const listenBridge = () =>
+    bridgeServer.listen(Number(bridge.slice(at + 1)), bridge.slice(0, at), () =>
+      display.log('info', 'supervisor', `Bridge: http://${bridge}`),
+    )
+  bridgeServer.on('error', (error) => {
+    display.log('warn', 'supervisor', `Bridge ${bridge}: ${error.message}; retrying`)
+    setTimeout(listenBridge, 5000)
+  })
+  listenBridge()
+}
+
 type Core = {
   child: ChildProcess
   port: number
@@ -515,6 +544,7 @@ async function shutdown() {
   for (const watcher of watchers) watcher.close()
   for (const socket of sockets) socket.destroy()
   proxy.close()
+  bridgeServer.close()
   await Promise.all([...children].map(exit))
   await lock.close()
   display.lifecycle('stopped')
