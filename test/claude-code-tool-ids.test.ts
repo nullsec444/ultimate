@@ -100,6 +100,9 @@ it('maps the native replay carrier with its message, without changing the input'
 })
 
 it('returns the context itself when every id is valid', () => {
-  const context = normalizeContext({ messages: [call('toolu_1'), result('toolu_1')] })
+  const longValid = 'toolu_' + 'x'.repeat(100)
+  const context = normalizeContext({
+    messages: [call('toolu_1', longValid), result('toolu_1'), result(longValid)],
+  })
   expect(withClaudeToolIds(context)).toBe(context)
 })

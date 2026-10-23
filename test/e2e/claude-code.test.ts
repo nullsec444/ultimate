@@ -334,7 +334,8 @@ it('sends Codex tool ids to Claude Code as valid, paired, collision-free ids wit
   // Parallel Codex calls: a long `call|fc` pair id; `call|1`, whose plain sanitization is the valid Claude id
   // `call_1` used later; `a|b` and `a.b`, which sanitize to the same `a_b`. Results arrive out of order.
   const pair = 'call_abc|fc_' + 'x'.repeat(80)
-  const valid = ['call_1', 'toolu_01Valid', 'call_valid-2']
+  const longValid = 'toolu_' + 'x'.repeat(100)
+  const valid = ['call_1', 'toolu_01Valid', 'call_valid-2', longValid]
   const history = (later: string[]): Message[] => [
     { role: 'user', content: 'Start.', timestamp: 1 },
     codex([pair, 'call|1', 'a|b', 'a.b']),
@@ -384,10 +385,12 @@ it('sends Codex tool ids to Claude Code as valid, paired, collision-free ids wit
       'call_1',
       'toolu_01Valid',
       'call_valid-2',
+      longValid,
       'toolu_01Valid',
       'call_valid-2',
+      longValid,
     ])
-    expect(sent.every((id) => /^[a-zA-Z0-9_-]{1,64}$/.test(id))).toBe(true)
+    expect(sent.every((id) => /^[a-zA-Z0-9_-]+$/.test(id))).toBe(true)
     // Both carrier turns still replay their native signed thinking.
     expect(
       first.flatMap((frame) =>

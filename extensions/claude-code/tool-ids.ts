@@ -3,7 +3,7 @@ import type { Message, TranscriptContext } from '@earendil-works/pi-ai'
 import { NATIVE_REPLAY_DIAGNOSTIC } from '@earendil-works/pi-claude-code/src/transcript.ts'
 
 // Anthropic rejects tool_use ids outside this pattern; other providers (Codex: `call_…|fc_…`) produce them.
-const VALID = /^[a-zA-Z0-9_-]{1,64}$/
+const VALID = /^[a-zA-Z0-9_-]+$/
 
 type Carrier = {
   message: { content: Array<{ type: string; id?: string }> }
