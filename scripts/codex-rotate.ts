@@ -116,8 +116,10 @@ if (!active || pool.length === 0) {
   process.exit(0)
 }
 // The active login is the freshest copy of its account: pi refreshes it in auth.json, not in the pool.
-const activeIndex = pool.findIndex((account) => account.accountId === active.accountId)
+// An active login missing from the pool joins it, so rotating away from it does not lose it.
+let activeIndex = pool.findIndex((account) => account.accountId === active.accountId)
 if (activeIndex >= 0) pool[activeIndex] = { ...pool[activeIndex], ...active }
+else activeIndex = pool.push({ ...active }) - 1
 
 const used = new Map<string, number>()
 for (const [index, account] of pool.entries()) {
