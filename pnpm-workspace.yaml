@@ -13,6 +13,13 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-mcp@1.4.0'
   - '@earendil-works/pi-telemetry@1.4.0'
   - '@earendil-works/pi-tui@1.4.0'
+  - '@pnpm/exe@11.28.8'
+  - '@pnpm/linux-arm64@11.28.8'
+  - '@pnpm/linux-x64@11.28.8'
+  - '@pnpm/linuxstatic-x64@11.28.8'
+  - '@pnpm/macos-arm64@11.28.8'
+  - '@pnpm/win-arm64@11.28.8'
+  - '@pnpm/win-x64@11.28.8'
 # Pi upstream: @earendil-works/chord@1.4.0 dist/output.js — patched sanitizeOutput to remove whole CSI/OSC/control strings while keeping numeric SGR. Drop when Pi ships equivalent sanitization.
 # Pi upstream: @earendil-works/pi-durable@1.4.0 dist/harness/inbox.js — transactional beforeInput hook places entries before a new run’s first input. Drop when Pi ships input-placement hooks.
 # Pi upstream: @earendil-works/pi-durable@1.4.0 dist/harness/inbox.js, dist/types.d.ts — mark entries placed from input submissions. Drop when Pi ships input provenance.
