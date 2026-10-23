@@ -3,7 +3,6 @@ import type { ConversationId, EntryRecord } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
 import { compareLinks, leaveNote, rootOf, Tally } from '../extensions/lineage/server.ts'
 import { Branch, Branched, Roots } from '../extensions/lineage/api.ts'
-import { Plan, Started } from '../extensions/plan/server.ts'
 import { Summaries } from '../extensions/conversations/summary.ts'
 import { Compacted } from '../extensions/conversations/refs.ts'
 import { Started as AgentStarted } from '../extensions/subagents/api.ts'
@@ -176,15 +175,6 @@ it('links each landing to its DiffsHub compare range, from its base or the landi
 
 it.concurrent('branches from a tally: the root gets the prompt node, the branch starts from the tally and its prompt', async () => {
   const { server, requests } = await fixture()
-  await server.harness.commit(async (tx) => {
-    ;(await tx.doc(Plan, server.root.id)).epics.E1 = {
-      key: 'E1',
-      title: 'Root work',
-      body: 'Body',
-      status: 'in_progress',
-      tasks: {},
-    }
-  }, context)
   const publications: import('@earendil-works/pi-durable').CommitPublication[] = []
   const stop = server.harness.subscribeCommits((publication) => publications.push(publication))
   const first = await branchFrom(server, { from: 1, prompt: 'Add notes between conversations' })
@@ -204,7 +194,7 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
   expect(initialized(Metadata.definition.kind)).toMatchObject({
     value: { title: 'Add notes between conversations' },
   })
-  // The creation commit carries the `lineage.branched` event; conversations and plan react to it.
+  // The creation commit carries the `lineage.branched` event.
   expect(
     creation.changes.some(
       (change) => change.type === 'entry' && change.value.kind === Branched.kind,
@@ -227,13 +217,6 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
   expect((await server.harness.snapshot(Summaries, first, context))?.generatedTitle).toBe(
     'Add notes between conversations',
   )
-  // A branch starts with an empty plan, already in its first request; the root keeps its own.
-  expect((await server.harness.snapshot(Plan, first, context))?.epics).toEqual({})
-  expect(JSON.stringify(requests[0])).not.toContain('Root work')
-  expect(
-    Object.keys((await server.harness.snapshot(Plan, server.root.id, context))!.epics),
-  ).toEqual(['E1'])
-
   // The empty root became a tally at the reset its first branch forked from.
   const tally = await server.root.context(context)
   const [reset, node] = tally.entries
@@ -253,6 +236,7 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
   expect(view.entries.map((entry) => entry.kind)).not.toContain('lineage.branched')
   expect(view.entries.filter((entry) => entry.kind === 'pi.reset')).toEqual([reset])
   expect(said(view.messages)).toEqual([
+    ['user', `You are conversation #${first}.`],
     ['user', 'Add notes between conversations'],
     ['assistant', 'echo Add notes between conversations'],
   ])
@@ -275,6 +259,7 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
   )!
   expect(said(request)).toEqual([
     ['user', `#${first} started from #1/${reset.id}: Add notes between conversations`],
+    ['user', `You are conversation #${later}.`],
     ['user', 'Look at this'],
   ])
   expect(request.at(-1)!.content).toEqual([{ type: 'text', text: 'Look at this' }, image])
@@ -311,7 +296,7 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
   // A tally gets no prompt section, since it never requests; a branch learns where its context starts.
   expect(await section(server, ROOT_CONVERSATION_ID)).toBeUndefined()
   expect(await section(server, first)).toContain(
-    `You are #${first}, branched from #1 at entry ${reset.id} for: Add notes between conversations\nRoot: #1.\nYour context starts with the tally of your tree`,
+    `Branched from #1 at entry ${reset.id} for: Add notes between conversations\nRoot: #1.\nYour context starts with the tally of your tree`,
   )
   expect(
     (await post(server, '/api/extensions/lineage/actions/info', { args: { id: first } })).data
@@ -321,49 +306,6 @@ it.concurrent('branches from a tally: the root gets the prompt node, the branch 
     root: 1,
     branch: { from: 1, intent: 'Add notes between conversations' },
   })
-})
-
-const rootWork = {
-  key: 'E1',
-  title: 'Root work',
-  body: 'Body',
-  status: 'in_progress' as const,
-  tasks: {},
-}
-
-it.concurrent('empties a branch plan in the commit that places its first input, with no reaction to wait for', async () => {
-  const { server, requests } = await fixture()
-  await server.harness.commit(async (tx) => {
-    ;(await tx.doc(Plan, server.root.id)).epics.E1 = rootWork
-  }, context)
-  // Without its prompt delivered, nothing has emptied the plan the branch forked with.
-  const id = await branchFrom(server, { from: 1, prompt: 'Later work', deliver: false })
-  expect(Object.keys((await server.harness.snapshot(Plan, id, context))!.epics)).toEqual(['E1'])
-  const conversation = (await server.harness.conversation(id, context))!
-  await conversation.submit({ type: 'input', content: 'Start now' }, context)
-  await settled(server, id)
-  expect(requests).toHaveLength(1)
-  expect(JSON.stringify(requests[0])).not.toContain('Root work')
-  expect((await server.harness.snapshot(Plan, id, context))?.epics).toEqual({})
-  expect(
-    Object.keys((await server.harness.snapshot(Plan, server.root.id, context))!.epics),
-  ).toEqual(['E1'])
-})
-
-it.concurrent('keeps the plan of a branch that answered before its plan was marked started', async () => {
-  const { server } = await fixture()
-  const id = await branchFrom(server, { from: 1, prompt: 'Polish the sidebar' })
-  await settled(server, id)
-  // As a branch made before the plan hook: its own ledger, and no started marker.
-  await server.harness.commit(async (tx) => {
-    ;(await tx.doc(Plan, id)).epics.E1 = { ...rootWork, title: 'Own work' }
-    delete (await tx.doc(Started, id)).started
-  }, context)
-  const conversation = (await server.harness.conversation(id, context))!
-  await conversation.submit({ type: 'input', content: 'Go on' }, context)
-  await settled(server, id)
-  expect(Object.keys((await server.harness.snapshot(Plan, id, context))!.epics)).toEqual(['E1'])
-  expect((await server.harness.snapshot(Started, id, context))?.started).toBe(true)
 })
 
 it.concurrent('a late branched reaction leaves the title a branch chose since', async () => {
@@ -438,12 +380,14 @@ it.concurrent('writes the prompt node of a branch of a branch into the tree root
       textOf(messages.findLast((message) => message.role === 'user')?.content) === 'Go deeper',
   )!
   expect(said(request).map(([, text]) => text)).toEqual([
+    `You are conversation #${first}.`,
     'First line',
     'echo First line',
+    `You are conversation #${nested}.`,
     'Go deeper',
   ])
   expect(await section(server, nested)).toContain(
-    `You are #${nested}, branched from #${first} at entry ${answer.id} for: Go deeper\nRoot: #1.`,
+    `Branched from #${first} at entry ${answer.id} for: Go deeper\nRoot: #1.`,
   )
 })
 
@@ -516,6 +460,7 @@ it.concurrent('delivers a branch’s prompt once when the process stops before i
   )
   await conversation.waitForIdle(context)
   expect(said((await conversation.context(context)).messages)).toEqual([
+    ['user', `You are conversation #${id}.`],
     ['user', 'Survive a crash'],
     ['assistant', 'echo Survive a crash'],
   ])
@@ -587,7 +532,7 @@ it.concurrent('resolves the root per tree for notes, the prompt and compaction',
   await expect(send(outside)).rejects.toThrow(`#${outside} has no root`)
 
   expect(await section(server, nested)).toBe(
-    `You are #${nested}.\nRoot: #${other.id}.\nZoom out when you need to: read any conversation, a root or a sibling, with codemode \`ultimate.entries(id)\` and \`ultimate.search(text)\`. Leave a \`note\` for a conversation your work affects.`,
+    `Root: #${other.id}.\nZoom out when you need to: read any conversation, a root or a sibling, with codemode \`ultimate.entries(id)\` and \`ultimate.search(text)\`. Leave a \`note\` for a conversation your work affects.`,
   )
   expect(await section(server, outside)).not.toContain('Root:')
   expect(await section(server, subagent)).toBeUndefined()

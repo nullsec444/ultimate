@@ -18,7 +18,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { actions, layout, shellKeys } from '../sdk/actions.ts'
 import { useConversation, useExtensions, useRegionOpen, useUiState } from '../sdk/hooks.ts'
-import { panelItems, slotItems } from '../sdk/registry.ts'
+import { panelItems, shownPanels, slotItems } from '../sdk/registry.ts'
 import type { PanelItem } from '../sdk/registry.ts'
 import { overlays, useViewport } from '../sdk/viewport.ts'
 import { ExtensionBoundary, Slot } from './boundary.tsx'
@@ -299,14 +299,15 @@ export function Panels() {
   const open = useRegionOpen('panels')
   const viewport = useViewport()
   const [selected] = useUiState<string | null>(shellKeys.panel, null)
-  if (panels.length === 0) return null
+  const { active, tabs } = shownPanels(panels, selected)
+  // Only tabless panels and none opened: nothing to show until one is.
+  if (!active) return null
   const overlay = overlays('panels', viewport)
   if (!open && !overlay) return null
-  const active = panels.find((panel) => panel.id === selected) ?? panels[0]
   const Panel = active.component
   const content = (
     <>
-      <PanelTabs active={active} panels={panels} />
+      <PanelTabs active={active} panels={tabs} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ExtensionBoundary
           extension={active.extension}

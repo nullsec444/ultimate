@@ -49,8 +49,8 @@ type Facts = {
 type Gathered = { revision: number | null; facts: Facts }
 
 /**
- * Board's `board.sent`, read by kind: board needs lineage, so lineage importing Board's token would close a cycle.
- * Only the fields read here; Board's refs.ts owns the full shape.
+ * Messages’ `board.sent`, read by kind: messages depends on lineage, so lineage importing Messages’ token would close a cycle.
+ * Only the fields read here; Messages’ refs.ts owns the full shape.
  */
 const MessageSent = defineEvent<{ from: number | 'user'; to: number | 'user' }>('board.sent')
 

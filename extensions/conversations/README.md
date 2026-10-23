@@ -80,7 +80,7 @@ The `GenerationTask.onYield` hook schedules a background observer. It waits for 
 only counts an exchange when an input submission completed with that answer (not an intermediate yield).
 The [summary model](#summary-model) describes each completed reply in one `activity` line, including subagent replies,
 in a background task. It judges nothing: whether a conversation waits, is done or failed comes from committed records
-(board's `conversationState`).
+(messages’ `conversationState`).
 Top-level conversations also get a title and summary on exchanges 1, 4, 7, and so on, in the same request.
 For a top-level non-root conversation in a lineage tree, that same request produces an abstract after every completed
 exchange, independent of the title/summary cadence. It uses the original branch intent, previous abstract and transcript:

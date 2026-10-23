@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve as resolvePath } from 'node:path'
 import { afterEach, vi } from 'vitest'
+import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 import {
   copyApis,
   fauxServer as createServer,
@@ -25,9 +26,6 @@ export async function fixture(extra = false, sources?: Record<string, string>, e
   const ultimateRoot = join(directory, 'repo')
   await mkdir(join(ultimateRoot, 'extensions', 'prompt'), { recursive: true })
   await cp(resolvePath('extensions/coding-tools'), join(ultimateRoot, 'extensions/coding-tools'), {
-    recursive: true,
-  })
-  await cp(resolvePath('extensions/faux'), join(ultimateRoot, 'extensions/faux'), {
     recursive: true,
   })
   await mkdir(join(ultimateRoot, 'web'), { recursive: true })
@@ -108,3 +106,18 @@ import { Type } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 export const order = ${order}
 export default defineExtension({ name: '${name}', sections: [section('${name === '0-new' ? 'new' : name}', () => '${name}')], tools: [defineTool({ name: '${name === '0-new' ? 'new' : name}', description: '${name}', parameters: Type.Object({}), execute: async () => ({}) })] })`
+
+export function holdResponse(server: Awaited<ReturnType<typeof createServer>>) {
+  server.host.faux!.setResponses([
+    (_transcript, options) =>
+      new Promise((resolve) => {
+        const signal = options?.signal
+        if (!signal) throw new Error('Expected generation abort signal')
+        if (signal.aborted) resolve(fauxAssistantMessage('Aborted'))
+        else
+          signal.addEventListener('abort', () => resolve(fauxAssistantMessage('Aborted')), {
+            once: true,
+          })
+      }),
+  ])
+}

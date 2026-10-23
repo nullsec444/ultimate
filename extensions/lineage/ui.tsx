@@ -6,7 +6,19 @@ import type { ReactNode } from 'react'
 import { definePoint, getState, useDocOf } from '@/sdk'
 import { RootsDoc } from './refs.ts'
 
-export { Branched, CompactAction, RecentAction, Rooted, RootsDoc, TallyDoc } from './refs.ts'
+export {
+  Branched,
+  CompactAction,
+  MemoryDoc,
+  RecentAction,
+  Rooted,
+  RootsDoc,
+  TallyDoc,
+} from './refs.ts'
+export type { MemoryItem } from './refs.ts'
+
+/** The id of lineage's Memory panel: every root's project memory, grouped by kind. */
+export const MEMORY_PANEL = 'memory'
 
 /** The composer's reading column, as the core lays it out; a card in place of a root's composer uses it. */
 export const column = (dock?: boolean) =>

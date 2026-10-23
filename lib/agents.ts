@@ -8,7 +8,7 @@ import { parseFrontmatter, resolveCliModel } from '@earendil-works/pi-coding-age
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import type { Source } from '../server/project.ts'
 // oxlint-disable-next-line no-restricted-imports -- agent discovery follows the core project trust decision
-import { useProjectSetup } from '../server/project-setup.ts'
+import { projectDecision, useProjectSetup } from '../server/project-setup.ts'
 
 export interface AgentDefinition {
   name: string
@@ -73,6 +73,8 @@ export interface AgentDiscovery {
   errors: { name: string; path: string; source: Source; error: string }[]
   /** User and project files that replace a built-in definition whole instead of extending it with `addTools`. */
   replaced: { name: string; path: string; source: Source }[]
+  /** The user's choice on the project's `.ultimate/` setup; its definitions apply only once trusted. */
+  projectSetup: 'trusted' | 'declined' | 'undecided'
 }
 // Pi's levels; `satisfies` fails the type check when Pi adds or drops one.
 const levels = {
@@ -284,7 +286,13 @@ export async function discoverAgents(
       }
     }
   }
-  return { definitions: [...definitions.values()], errors, replaced }
+  const decision = projectDecision(projectRoot, userHome)
+  return {
+    definitions: [...definitions.values()],
+    errors,
+    replaced,
+    projectSetup: decision === true ? 'trusted' : decision === false ? 'declined' : 'undecided',
+  }
 }
 
 /** The fields a definition file's frontmatter may carry besides its name; `model` is `provider/id`. */

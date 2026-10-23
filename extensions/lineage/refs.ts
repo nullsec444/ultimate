@@ -45,7 +45,7 @@ export const RecentAction = actionRef<
   { id: number; limit?: number; types?: RootEvent['type'][] },
   RootEvent[]
 >('lineage', 'recent')
-/** `{ id, instructions? }` → `{ taskId }`: compact root `id`'s tally, as @ultimate's `compact_tally` does. */
+/** `{ id, instructions? }` → `{ taskId }`: compact root `id`'s tally, for its history footer and the palette. */
 export const CompactAction = actionRef<{ id: number; instructions?: string }, { taskId: number }>(
   'lineage',
   'compact',

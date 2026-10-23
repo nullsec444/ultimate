@@ -102,7 +102,7 @@ async function instructionChanges(
     host.modelRuntime,
   )
   const definition = definitions.find((candidate) => candidate.name === name)
-  // Board deliveries refresh a standing agent; a typed input did not, so an updated definition waited for a message.
+  // Messages deliveries refresh a standing agent; a typed input did not, so an updated definition waited for a message.
   const reapplied =
     definition !== undefined &&
     (await tx.doc(AgentDoc, conversationId)).instructions !== definition.instructions
@@ -128,7 +128,7 @@ async function instructionChanges(
         .toSorted()
     : []
   // The definition's files (its own and any overlays) are named as instructions when they changed; a text re-applied
-  // here with no file changed since the last run (a Board delivery applied it already) names the definition's own
+  // here with no file changed since the last run (a Messages delivery applied it already) names the definition's own
   // file. An overlay removed since the last run is found by its file name.
   const ownFile = `/agents/${name}.md`
   const touched = changed.filter((path) => own.includes(path) || path.endsWith(ownFile))

@@ -73,7 +73,15 @@ function ClaudeCodePanel() {
 
 export default defineWebExtension({
   panels: [
-    { id: 'claude-code', title: 'Claude Code', icon: TerminalIcon, component: ClaudeCodePanel },
+    {
+      id: 'claude-code',
+      title: 'Claude Code',
+      icon: TerminalIcon,
+      component: ClaudeCodePanel,
+      order: 10,
+      // Opened from ⌘K and the model picker.
+      tab: false,
+    },
   ],
   commands: [
     {

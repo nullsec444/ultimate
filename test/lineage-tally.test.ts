@@ -1,114 +1,23 @@
 import { expect, it } from 'vitest'
-import {
-  CompactionTask,
-  configure,
-  defineExtension,
-  defineTask,
-  ROOT_CONVERSATION_ID,
-} from '@earendil-works/pi-durable'
-import type { ConversationId, TaskId } from '@earendil-works/pi-durable'
+import { CompactionTask, ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
+import type { TaskId } from '@earendil-works/pi-durable'
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
-import { Roots } from '../extensions/lineage/api.ts'
-import { Tally } from '../extensions/lineage/server.ts'
 import { context } from '../server/harness.ts'
-import { Metadata } from '../server/metadata.ts'
-import { fauxServer, sourceCopy, temp } from './helpers.ts'
+import { fauxServer, post, seedTally, sourceCopy, temp } from './helpers.ts'
 
-it('creates roots once, seeds them, and compacts only available tallies with the root focus', async () => {
+it('compacts a tally once at a time with the root focus and the given instructions', async () => {
   const home = await temp()
   const server = await fauxServer({ ultimateRoot: await sourceCopy(home), home, userHome: home })
-  const release = Promise.withResolvers<void>()
-  const anchor = defineTask<null, { phase: 'wait' }, null>({
-    name: 'tally-test.anchor',
-    version: 1,
-    initial: () => ({ phase: 'wait' }),
-    abort: (_task, runtime, ctx) =>
-      runtime.commit(() => ({ status: 'terminal', outcome: { status: 'aborted' } }), ctx),
-    phases: {
-      wait: async (_task, runtime, ctx) => {
-        await release.promise
-        await runtime.commit(
-          () => ({ status: 'terminal', outcome: { status: 'completed', result: null } }),
-          ctx,
-        )
-      },
-    },
-  })
   const compacting = Promise.withResolvers<void>()
   const finishCompact = Promise.withResolvers<void>()
   try {
-    server.host.registry.install(defineExtension({ name: 'tally-test', tasks: [anchor] }))
-    const taskId = await server.harness.commit(
-      (tx) =>
-        tx.createTask(anchor, null, {
-          conversationId: ROOT_CONVERSATION_ID,
-          ownership: { kind: 'conversation' },
-          background: true,
-        }),
-      context,
-    )
-    const caller = await server.harness.createConversation(
-      { ownership: { kind: 'ownerless' } },
-      context,
-    )
-    await server.harness.commit(async (tx) => {
-      await configure(tx, ROOT_CONVERSATION_ID, { thinkingLevel: 'high' })
-      await tx.appendEntry(caller.id, {
-        kind: 'pi.user',
-        model: [{ role: 'user', content: 'Read the project', timestamp: 0 }],
-      })
-    }, context)
+    const compact = async (args: unknown) =>
+      (await post(server, '/api/extensions/lineage/actions/compact', { args })).data
     const tools = server.host.registry.snapshot().extension('lineage')!.tools!
-    const create = tools.find((tool) => tool.name === 'new_root')!
-    const seed = tools.find((tool) => tool.name === 'seed_tally')!
-    const compact = tools.find((tool) => tool.name === 'compact_tally')!
-    expect([create, seed, compact].every((tool) => tool.deferred)).toBe(true)
-    const memos = new Map<string, unknown>()
-    const api = {
-      conversationId: caller.id,
-      taskId,
-      callId: 'new-root',
-      memo: async (key: string, ...args: unknown[]) => {
-        if (args.length === 2 && !memos.has(key)) memos.set(key, args[0])
-        return memos.get(key)
-      },
-      commit: (change: Parameters<typeof server.harness.commit>[0]) =>
-        server.harness.commit(change, context),
-    } as unknown as Parameters<typeof create.execute>[1]
-    const created = await create.execute({ title: 'Independent work' }, api, context)
-    const id = JSON.parse(created.output!.filter((part) => part.type === 'text')[0].text)
-      .id as ConversationId
-    const conversation = (await server.harness.conversation(id, context))!
-    const record = await server.harness.commit((tx) => tx.conversation(id), context)
-    expect(record?.owner).toBeUndefined()
-    expect(record?.parent).toBeUndefined()
-    expect((await server.harness.snapshot(Roots, ROOT_CONVERSATION_ID, context))?.roots).toEqual([
-      1,
-      id,
-    ])
-    expect((await conversation.context(context)).entries).toEqual([])
-    const defaults = await server.root.agent(context)
-    expect(await conversation.agent(context)).toMatchObject({
-      cwd: server.host.projectRoot,
-      model: defaults.model,
-      thinkingLevel: 'high',
-    })
-    expect((await server.harness.snapshot(Metadata, id, context))?.title).toBe('Independent work')
-    expect(await create.execute({ title: 'Independent work' }, api, context)).toEqual(created)
-    // Crash after creation but before the memo: the transactional receipt still wins.
-    memos.clear()
-    expect(await create.execute({ title: 'Independent work' }, api, context)).toEqual(created)
-    expect((await server.harness.snapshot(Roots, ROOT_CONVERSATION_ID, context))?.roots).toEqual([
-      1,
-      id,
-    ])
-    await expect(create.execute({ title: ' ' }, api, context)).rejects.toThrow('needs a title')
-    await expect(compact.execute({ root: caller.id }, api, context)).rejects.toThrow(
-      'not a listed root',
-    )
-    await expect(compact.execute({ root: id }, api, context)).rejects.toThrow('not a tally')
-    await seed.execute({ root: id, text: 'Project reading: run pnpm test.' }, api, context)
-    expect((await server.harness.snapshot(Tally, id, context))?.since).toBeDefined()
+    for (const name of ['new_root', 'seed_tally', 'compact_tally'])
+      expect(tools.map((tool) => tool.name)).not.toContain(name)
+    const id = ROOT_CONVERSATION_ID
+    await seedTally(server.harness)
     await server.harness.commit(async (tx) => {
       for (let n = 0; n < 8; n++)
         await tx.appendEntry(id, {
@@ -127,40 +36,31 @@ it('creates roots once, seeds them, and compacts only available tallies with the
         )
       },
     ])
-    const results = await Promise.allSettled(
+    const results = await Promise.all(
       Array.from({ length: 2 }, () =>
-        compact.execute(
-          { root: id, instructions: 'Drop the obsolete deployment plan.' },
-          api,
-          context,
-        ),
+        compact({ id, instructions: 'Drop the obsolete deployment plan.' }),
       ),
     )
-    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
-    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
-      reason: expect.objectContaining({ message: `#${id} is already compacting` }),
-    })
+    expect(results.filter((result) => result.result)).toHaveLength(1)
+    expect(results.find((result) => result.error)?.error).toBe(`#${id} is already compacting`)
     const tasks = await server.harness.commit(
       (tx) => tx.scanTasks({ conversationId: id, kind: CompactionTask.definition.name }, 10),
       context,
     )
     expect(tasks.items).toHaveLength(1)
-    const accepted = results.find((result) => result.status === 'fulfilled')!.value
-    const compaction = JSON.parse(accepted.output!.filter((part) => part.type === 'text')[0].text)
-      .taskId as TaskId
+    const taskId = results.find((result) => result.result)!.result.taskId as TaskId
     await compacting.promise
-    await expect(compact.execute({ root: id }, api, context)).rejects.toThrow('already compacting')
+    expect((await compact({ id })).error).toBe(`#${id} is already compacting`)
     finishCompact.resolve()
-    expect((await server.harness.waitForTask(compaction, context)).state.outcome.status).toBe(
+    expect((await server.harness.waitForTask(taskId, context)).state.outcome.status).toBe(
       'completed',
     )
     expect(prompt).toContain('This is the tally of one line of work')
     expect(prompt).toContain('standing decisions')
     expect(prompt).toContain('Drop the obsolete deployment plan.')
-    expect(JSON.stringify((await conversation.context(context)).messages)).toContain('Root summary')
+    expect(JSON.stringify((await server.root.context(context)).messages)).toContain('Root summary')
   } finally {
     finishCompact.resolve()
-    release.resolve()
     await server.close()
   }
 })

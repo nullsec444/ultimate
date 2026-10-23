@@ -23,8 +23,12 @@ it('a report notice names what failed', () => {
     conversationId: 4 as ConversationId,
   } as ReportTask
   expect(
-    reportMessage(new Error('cut off 5 times'), { type: 'task_parked', task, extension: 'board' }),
-  ).toBe('task parked: task #12 (pi.generation) in #4, extension board. Error: cut off 5 times')
+    reportMessage(new Error('cut off 5 times'), {
+      type: 'task_parked',
+      task,
+      extension: 'messages',
+    }),
+  ).toBe('task parked: task #12 (pi.generation) in #4, extension messages. Error: cut off 5 times')
   expect(
     reportMessage(new Error('boom'), { type: 'task_faulted', task, reason: 'restart_limit' }),
   ).toBe('task faulted (restart limit): task #12 (pi.generation) in #4. Error: boom')

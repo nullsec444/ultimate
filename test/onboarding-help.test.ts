@@ -1,11 +1,11 @@
 import { expect, it } from 'vitest'
-import { Board } from '../extensions/board/api.ts'
+import { Messages } from '../extensions/messages/api.ts'
 import { Standing } from '../extensions/subagents/api.ts'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import { context } from '../server/harness.ts'
 import { fauxServer, post, sourceCopy, temp } from './helpers.ts'
 
-it('opens setup help in the standing conversation without a Board post', async () => {
+it('opens setup help in the standing conversation without a message', async () => {
   const home = await temp()
   const server = await fauxServer({ ultimateRoot: await sourceCopy(home), home, userHome: home })
   try {
@@ -26,16 +26,12 @@ it('opens setup help in the standing conversation without a Board post', async (
     expect(messages).toContain("Help me decide whether to use this project's setup.")
     expect(messages).toContain('Help me set up git for this folder.')
     expect(
-      (await server.harness.snapshot(Board, ROOT_CONVERSATION_ID, context))?.messages ?? [],
+      (await server.harness.snapshot(Messages, ROOT_CONVERSATION_ID, context))?.messages ?? [],
     ).toEqual([])
     const invalid = await post(server, '/api/extensions/onboarding/actions/help', {
       args: { card: 'arbitrary' },
     })
     expect(invalid.status).not.toBe(200)
-    const removed = await post(server, '/api/extensions/board/actions/post', {
-      args: { to: '@ultimate', text: 'Not supported' },
-    })
-    expect(removed.status).toBe(404)
   } finally {
     await server.close()
   }

@@ -29,15 +29,18 @@ function Agent() {
   )
 }
 
-/** Commands for the shown conversation, on every surface; the palette lists them under Ultimate, with the shell's. */
+/**
+ * Commands for the shown conversation, on every surface; the palette lists them under Ultimate, with the shell's. A
+ * shortcut pressed inside a `ConversationScope` (a side chat) acts on that conversation instead.
+ */
 const commands: CommandContribution[] = [
   {
     id: 'agent.stop',
     title: 'Stop the run',
     keys: 'escape',
     whileTyping: true,
-    when: () => getConversation().busy,
-    run: () => api.abort(),
+    when: (context) => getConversation(context.conversationId).busy,
+    run: (context) => api.abort(context.conversationId),
   },
   {
     id: 'agent.compact',

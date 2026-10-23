@@ -139,7 +139,7 @@ export default defineWebExtension({
       title: 'Documents',
       icon: FileStackIcon,
       component: DocumentsPanel,
-      order: -7,
+      order: 4,
     },
   ],
   commands: [

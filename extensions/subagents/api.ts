@@ -29,7 +29,6 @@ export const Subagents = defineDoc<{
       reporter: TaskId
       answer?: EntryId
       status?: string
-      retryRequest?: string
     }
   >
 }>({

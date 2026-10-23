@@ -19,6 +19,7 @@ import {
   price,
   selectModel,
   useCurrentModel,
+  usePickerTarget,
 } from './state.tsx'
 import type { ModelInfo, ProviderInfo } from './state.tsx'
 
@@ -78,11 +79,11 @@ export function ModelRow({
   )
 }
 
-/** Searchable models of every provider, grouped; picking one configures the shown conversation. */
+/** Searchable models of every provider, grouped; picking one configures the conversation that opened it. */
 export function ModelPicker() {
   const [open, setOpen] = useDialog(dialogs.picker)
   const actions = useUltimate()
-  const { ref, models, loading } = useCurrentModel()
+  const { id, ref, models, loading } = useCurrentModel(usePickerTarget())
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string>()
   const providers = useMemo(
@@ -116,11 +117,11 @@ export function ModelPicker() {
         actions.openPanel('claude-code')
         return
       }
-      openLogin(actions, model.provider)
+      openLogin({ ...actions, conversationId: id }, model.provider)
       return
     }
     setError(undefined)
-    selectModel(model).then(
+    selectModel(model, id).then(
       () => setOpen(false),
       (failure: unknown) => setError(errorMessage(failure)),
     )
@@ -180,7 +181,7 @@ export function ModelPicker() {
             <CommandGroup heading="Accounts">
               <CommandItem
                 className="gap-2 py-1 font-mono text-[12px]"
-                onSelect={() => openLogin(actions)}
+                onSelect={() => openLogin({ ...actions, conversationId: id })}
                 value="login"
               >
                 <LogInIcon className="size-3.5" />

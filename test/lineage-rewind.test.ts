@@ -6,7 +6,7 @@ import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
 import { LiveDoc, ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import type { CompactionResult, EntryRecord, TaskId } from '@earendil-works/pi-durable'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { MessageSent } from '../extensions/board/api.ts'
+import { MessageSent } from '../extensions/messages/api.ts'
 import { Rewound } from '../extensions/lineage/refs.ts'
 import { Standing, Started } from '../extensions/subagents/api.ts'
 import { context } from '../server/harness.ts'
@@ -85,10 +85,12 @@ async function fixture() {
     )!.id as number
   const call = (action: string, args: object) =>
     post(server, `/api/extensions/lineage/actions/${action}`, { args })
+  // These assertions describe the work and rewind notes, not the hidden identity reminder.
   const said = async () =>
     (await conversation.context(context)).messages
       .filter((message) => message.role !== 'system')
       .map((message) => textOf(message.content))
+      .filter((text) => text !== `You are conversation #${conversation.id}.`)
   return { server, conversation, ask, answer, call, said, requests, summaries, state }
 }
 
@@ -256,7 +258,7 @@ it('flags conversations started or messaged after the entry, and keeps a standin
     // The conversation is @ultimate; it started one worker after the entry and messaged another conversation.
     ;(await tx.doc(Standing, ROOT_CONVERSATION_ID)).ultimate = id
     await emit(tx, Started, { id: worker.id, agent: 'worker', kind: 'child', parent: id })
-    // Board's durable record of the message, not its capped log; one to itself and one from the user count for nothing.
+    // Messages’ durable record of the message, not its capped log; one to itself and one from the user count for nothing.
     for (const [from, to] of [
       [id, recipient.id],
       [id, id],

@@ -48,10 +48,10 @@ posted: ids, `reply`, `steer`, never the text), `workspaces.check` (each lander 
 `coding-tools.committed` (a commit made through bash: full sha, repo, worktree, branch). The last four follow state
 outside the caller's commit (Pi's compaction, the machine's health file, an upload, a git repository), so each commits on
 its own right after it. For debugging what the user did: `user.input` (a typed prompt, steer or follow-up, an
-answer or dismissal, a review: its conversation, entry or Board message and length, never the text) and
+answer or dismissal, a review: its conversation, entry or message and length, never the text) and
 `ui.navigated` (the surface or Agent's conversation changed, reported by the browser after a second and deduped),
 each with the browser's `device` label and, through Tailscale Serve, the `login`. A typed input and a review commit
-right after Pi admits them, which has no hook for queued inputs; answers commit with their Board reply. Something the user must see
+right after Pi admits them, which has no hook for queued inputs; answers commit with their reply. Something the user must see
 exactly once and that feeds the result the owner reports, like the lander's deploy handoff, stays a call, idempotent by
 request id; when it calls up the layering, it goes through an extension point (below).
 `host.harness().subscribeCommits` remains for watching Pi's own records (entries, tasks, submissions, conversation
@@ -70,7 +70,7 @@ extension fills. `test/e2e/disable-each.test.ts` boots with each optional extens
 clean catalogue.
 
 Today's core tier: agent, prompt, coding-tools, conversations, models, documents, notices, secrets, theme,
-workspaces, subagents, lineage, board, onboarding (the first run and @ultimate's setup cards need it) and sidebar.
+workspaces, subagents, lineage, messages, onboarding (the first run and @ultimate's setup cards need it) and sidebar.
 
 Dependencies point one way. A core-tier extension imports (runtime or type), needs and wants only core-tier
 extensions; lint's `core-tier-deps` enforces the imports, and the catalogue has no cycles. `pnpm deps`
@@ -84,14 +84,14 @@ extension depending on an optional one. The core layers, lowest first, each depe
 4. workspaces: worktrees and the lander.
 5. subagents: child conversations and standing agents.
 6. lineage: roots, branches, tallies, notes.
-7. board: messages and the `branch` tool.
+7. messages: delivery and the `branch` tool.
 8. onboarding and agent.
 9. sidebar: the sidebar and the @ultimate button, the UI that brings the core together.
 
 Where a lower extension needs something a higher one knows, it declares the contract and the higher one fills it:
 server extension points (`conversations.trees` and `conversations.release` from conversations, `workspaces.handoff`
 from workspaces), web points (`conversations.phase`, `conversations.task`, `conversations.unsummarized`,
-`board.message-answers`, `lineage.empty-root`, `workspaces.review`), or durable events (`board.asked`,
+`messages.answers`, `lineage.empty-root`, `workspaces.review`), or durable events (`board.asked`,
 `models.login-changed`). Optional extensions plug into the core the same way: phase, plan and questions provide
 points and react to events; the core never imports them. A web point is `definePoint` in the owner's `ui.tsx`,
 rendered with `<Provided>` and filled by `provides` in another facet (see

@@ -1,4 +1,4 @@
-import { BotIcon, GitMergeIcon, ScrollTextIcon } from 'lucide-react'
+import { BotIcon, BrainIcon, GitMergeIcon, ScrollTextIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from '@/sdk'
 
@@ -25,6 +25,10 @@ const tiles: Record<string, { tint: string; glyph: ReactNode }> = {
     tint: 'bg-brand/8 text-brand/90 ring-brand/20',
     glyph: <ScrollTextIcon className="size-[58%]" strokeWidth={2} />,
   },
+  memory: {
+    tint: 'bg-brand/8 text-brand/90 ring-brand/20',
+    glyph: <BrainIcon className="size-[58%]" strokeWidth={2} />,
+  },
 }
 const fallback = {
   tint: 'bg-muted text-muted-foreground ring-border',
@@ -36,7 +40,7 @@ export type Presence = 'working' | 'waiting' | 'idle'
 
 /**
  * An agent's avatar: a small rounded tile in its colour with its glyph, the same in the sidebar, the title bar and
- * chat headers. `name` is a standing agent's name, `lander`, or `root` for a project's context.
+ * chat headers. `name` is a standing agent's name, `lander`, `root` for a project's context or `memory` for its memory.
  */
 export function AgentMark({
   name,

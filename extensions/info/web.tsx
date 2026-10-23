@@ -10,7 +10,6 @@ import {
   formatTokens,
   shortenPath,
   useConversation,
-  useExtensions,
   useModels,
   useNow,
   useRestart,
@@ -18,7 +17,8 @@ import {
 } from '@/sdk'
 import type { SystemInfo, Usage } from '@/sdk'
 import { Row, Rows } from '@/components/ui/rows'
-import { Copy, ErrorText, Meter, Section, Tag } from './ui.tsx'
+import { useWorkspacesMeta, Workspaces as WorkspaceRows } from '../workspaces/ui.tsx'
+import { Copy, ErrorText, Meter, Section } from './ui.tsx'
 
 const pad = (value: number) => String(value).padStart(2, '0')
 
@@ -340,123 +340,6 @@ function Bucket({ name, bucket }: { name: string; bucket: Usage }) {
   )
 }
 
-function List({ label, items }: { label: string; items: readonly string[] }) {
-  if (items.length === 0) return null
-  return (
-    <div className="flex min-w-0 gap-2">
-      <span className="w-14 shrink-0 text-muted-foreground/60">{label}</span>
-      <span className="min-w-0 break-words text-foreground/80">{items.join(' ')}</span>
-    </div>
-  )
-}
-
-function Extensions({ system }: { system: SystemInfo }) {
-  const web = useExtensions()
-  const enabled = system.extensions.filter((extension) => extension.enabled)
-  const off = system.extensions.length - enabled.length
-  const failed = enabled.filter(
-    (extension) =>
-      extension.server?.error ||
-      web.some((record) => record.name === extension.name && record.error),
-  ).length
-  return (
-    <Section
-      id="extensions"
-      meta={
-        <>
-          {enabled.length}
-          {off > 0 && ` · ${off} off`}
-          {failed > 0 && <span className="text-error"> · {failed} failing</span>}
-        </>
-      }
-      title="Extensions"
-    >
-      <div className="flex flex-col gap-1.5">
-        {system.extensions
-          .toSorted((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name))
-          .map((extension) => {
-            const record = web.find((candidate) => candidate.name === extension.name)
-            const server = extension.server
-            const error = server?.error || record?.error
-            return (
-              <div
-                className={cn(
-                  'rounded-md border px-2 py-1.5 font-mono text-[11px]',
-                  error ? 'border-error/40' : 'border-border/60',
-                  !extension.enabled && 'opacity-60',
-                )}
-                key={extension.name}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      'font-medium',
-                      error
-                        ? 'text-error'
-                        : extension.enabled
-                          ? 'text-foreground'
-                          : 'text-muted-foreground',
-                    )}
-                  >
-                    {extension.name}
-                  </span>
-                  {!extension.enabled && <Tag>off</Tag>}
-                  {extension.facets.server && (
-                    <Tag className={server?.error ? 'border-error/40 text-error' : undefined}>
-                      server
-                    </Tag>
-                  )}
-                  {extension.facets.web && (
-                    <Tag className={record?.error ? 'border-error/40 text-error' : undefined}>
-                      web
-                    </Tag>
-                  )}
-                  <span
-                    className={cn(
-                      'text-[10.5px]',
-                      extension.source === 'builtin' ? 'text-muted-foreground/60' : 'text-brand',
-                    )}
-                    title={extension.path}
-                  >
-                    {extension.source}
-                  </span>
-                  {server?.loadedAt && (
-                    <span
-                      className="ml-auto text-[10.5px] text-muted-foreground/60"
-                      title={`server facet loaded ${server.loadedAt}`}
-                    >
-                      {formatTime(server.loadedAt, true)}
-                    </span>
-                  )}
-                </div>
-                {extension.readme && !extension.readme.startsWith('#') && (
-                  <p className="mt-1 line-clamp-2 font-sans text-[11.5px] leading-snug text-muted-foreground">
-                    {extension.readme.replaceAll('`', '')}
-                  </p>
-                )}
-                {server && (
-                  <div className="mt-1 flex flex-col gap-px">
-                    <List items={server.tools.map((tool) => tool.name)} label="tools" />
-                    <List items={server.sections} label="prompt" />
-                    <List items={server.docs} label="docs" />
-                    {server.hooks > 0 && <List items={[String(server.hooks)]} label="hooks" />}
-                  </div>
-                )}
-                {server?.error && <ErrorText>server.ts: {server.error}</ErrorText>}
-                {record?.error && (
-                  <ErrorText>
-                    web.tsx: {record.error}
-                    {record.extension ? '\nprevious version still running' : ''}
-                  </ErrorText>
-                )}
-              </div>
-            )
-          })}
-      </div>
-    </Section>
-  )
-}
-
 function Described({
   name,
   description,
@@ -516,6 +399,14 @@ function ContextFiles({ system }: { system: SystemInfo }) {
   )
 }
 
+function Workspaces() {
+  return (
+    <Section id="workspaces" meta={useWorkspacesMeta()} title="Workspace">
+      <WorkspaceRows />
+    </Section>
+  )
+}
+
 function Empty({ children }: { children: ReactNode }) {
   return <div className="font-mono text-[11px] text-muted-foreground/60">{children}</div>
 }
@@ -526,13 +417,14 @@ function InfoPanel() {
     return <div className="p-3 font-mono text-[11.5px] text-muted-foreground">connecting…</div>
   return (
     <div className="pb-4">
+      {/* The shown conversation first, then this host, then what loads into every prompt. */}
+      <Workspaces />
+      <Model />
+      <Code system={system} />
+      <Execution system={system} />
       <Machine system={system} />
       <Process system={system} />
       <Persistence system={system} />
-      <Execution system={system} />
-      <Code system={system} />
-      <Model />
-      <Extensions system={system} />
       <Skills system={system} />
       <ContextFiles system={system} />
     </div>
@@ -540,7 +432,7 @@ function InfoPanel() {
 }
 
 export default defineWebExtension({
-  panels: [{ id: 'info', title: 'Info', icon: InfoIcon, component: InfoPanel, order: -10 }],
+  panels: [{ id: 'info', title: 'Info', icon: InfoIcon, component: InfoPanel, order: 5 }],
   commands: [
     {
       id: 'info.open',

@@ -14,9 +14,10 @@ A project is a forest of conversation trees, like commit histories.
   calls a tally **context**; code, tools and model text call it "tally". The footer shows the memory's estimated tokens (what a branch starts from) and **Talk to @ultimate**; the sidebar
   shows each root heading its tree with its last three events (landings, notes, branches, compactions).
   Start a project with @ultimate: Continue on Get ready or **Set up with @ultimate** on Start here. It handles setup
-  cards, reads the project and seeds the first tally; optional focus becomes instructions. It maintains memory
-  with `remember` and the memory review (`extensions/lineage/README.md`), seeds empty roots with `seed_tally`, and reshapes tallies with `compact_tally` without deleting history.
-  Only a user request for independent work warrants `new_root`, seeded from its reading.
+  cards, reads the project and writes its first memories with `remember`; optional focus becomes instructions,
+  kept verbatim as a memory. The tally then builds up from branches and landings. @ultimate maintains memory with
+  `remember` and the memory review (`extensions/lineage/README.md`); the user can compact a tally from its footer
+  or ⌘K. A project has one root: independent work goes into branches.
   Roots and standing agents are never concluded or cleared, only compacted.
 - **A branch** is a feature, a fix, an experiment. @ultimate picks a root by reading its tally, then starts a
   coordinator branch that starts from its memory brief (or, without memories, its tally) before its prompt. A branch is never a subagent.
@@ -97,7 +98,7 @@ See [integration details](docs/worktrees.md#standing-permission-to-push-this-rep
   properties), relative imports end in `.ts`.
 - Core server/web contracts live in `shared/protocol.ts`; extension-local types live with their extension.
 - Pin `@earendil-works/*` packages to exact versions; Pi Durable is experimental.
-- Checks: `pnpm check` (format, lint, types) and the tests covering your change must pass before a commit; the lander runs every suite. Keep `pnpm test` fast: no real-time waits, no spawned processes (those go to `test/e2e`), and fix or delete a flaky test rather than skipping it or raising its timeout. Lint enforces this with `ultimate/no-test-timeout` and `ultimate/no-real-wait-in-fast-tests` (`test/e2e` is exempt); justified exceptions need a `fast-test-reason:` comment. Use the real-deadline `until` from `test/helpers.ts` (`ultimate/no-local-test-polling`). `ultimate/no-retired-ui` keeps retired UI labels and the board surface out of extensions and web code.
+- Checks: `pnpm check` (format, lint, types) and the tests covering your change must pass before a commit; the lander runs every suite. Keep `pnpm test` fast: no real-time waits, no spawned processes (those go to `test/e2e`), and fix or delete a flaky test rather than skipping it or raising its timeout. Lint enforces this with `ultimate/no-test-timeout` and `ultimate/no-real-wait-in-fast-tests` (`test/e2e` is exempt); justified exceptions need a `fast-test-reason:` comment. Use the real-deadline `until` from `test/helpers.ts` (`ultimate/no-local-test-polling`). `ultimate/no-retired-ui` keeps retired UI labels and surfaces out of extensions and web code.
 - Every user-visible result is designed, not dumped: status and outcomes (a subagent report, a landing, a failure) get a
   renderer that matches the existing cards (see `extensions/subagents/messages.tsx`, `extensions/workspaces/log.tsx`),
   never plain Markdown in a message. Look at the running app and recent screenshots first, write the expected look into

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { Context, JsonValue } from '@earendil-works/chord'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import {
+  defineDoc,
   defineExtension,
   GenerationTask,
   hook,
@@ -38,6 +39,34 @@ import {
 } from './refs.ts'
 
 export const docs = [Summaries, Overview]
+
+/** A fork needs its own identity; a new context head (compaction or reset) needs it again. */
+const SeenIdentity = defineDoc<{ head?: number }>({
+  kind: 'conversations.identity',
+  checkpointWhen: () => false,
+  version: 1,
+  scope: 'conversation',
+  history: 'latest',
+  fork: 'initial',
+  initial: () => ({}),
+})
+
+async function identityNote(tx: Tx, id: ConversationId) {
+  const head = (await tx.latestHeadMarker(id))?.id ?? 0
+  const seen = await tx.doc(SeenIdentity, id)
+  if (seen.head === head) return undefined
+  seen.head = head
+  return {
+    entries: [
+      {
+        kind: 'conversations.identity',
+        model: [
+          { role: 'user' as const, content: `You are conversation #${id}.`, timestamp: Date.now() },
+        ],
+      },
+    ],
+  }
+}
 
 const record = (host: Pick<ExtensionHost, 'harness'>, id: ConversationId, caller: Context) =>
   host.harness().commit((tx) => tx.conversation(id), caller)
@@ -218,6 +247,12 @@ export async function subject(
   }
 }
 
+/** Read the concluded set without leaving the caller's transaction. */
+export async function concludedIn(tx: Tx): Promise<Set<ConversationId>> {
+  const ids = (await tx.doc(UiState, ROOT_CONVERSATION_ID))['ext.conversations.concluded']
+  return new Set(Array.isArray(ids) ? (ids as ConversationId[]) : [])
+}
+
 /** Tells each top-level conversation which other conversations work in this project. */
 export default (host: ExtensionHost) => {
   // Extension points this extension declares, resolved where they are called; declared here for the catalogue.
@@ -226,6 +261,7 @@ export default (host: ExtensionHost) => {
   host.implement(ConversationsApi, {
     subject: (id, caller) => subject(host, id, caller),
     concludeIn: (tx, ids) => concludeIn(host, tx, ids),
+    concludedIn,
     summaryModel: () => summaryModel(host),
     summaryModelStatus: () => summaryModelStatus(host),
     requestSummary: (tx, id, request, model) => requestSummary(tx, host, id, request, model),
@@ -254,11 +290,27 @@ export default (host: ExtensionHost) => {
     hooks: [
       ...summaries.hooks,
       // Pi upstream: @earendil-works/pi-durable@1.4.0 — patched transactional beforeInput hook. Drop when Pi ships input-placement hooks.
-      // Any input that starts a run (typed, board message or reply, report, automation) brings the conversation and its
+      // Any input that starts a run (typed, message or reply, report, automation) brings the conversation and its
       // concluded ancestors back, in the commit that places it. Writes (notes) start no run and never get here.
       hook(GenerationTask, {
         beforeInput: async (_input, api) => {
           await resumeIn(api.tx, [api.conversationId])
+          // Also identify owned conversations; this note never changes the cached system prompt.
+          return identityNote(api.tx, api.conversationId)
+        },
+        beforeRequest: (request, api) => {
+          // beforeInput sees the old head when queued writes land, and automatic compaction can resume
+          // without an input. Guard the actual request, including retries, without changing the system prefix.
+          // First, not last: a fixed position keeps the cached conversation prefix valid from one request to the next.
+          const content = `You are conversation #${api.conversationId}.`
+          if (
+            !request.messages.some(
+              (message) => message.role === 'user' && message.content === content,
+            )
+          )
+            return {
+              messages: [{ role: 'user', content, timestamp: 0 }, ...request.messages],
+            }
           return undefined
         },
       }),
@@ -274,7 +326,7 @@ export default (host: ExtensionHost) => {
         if (!topLevel.get(input.conversationId)) return undefined
         // Fixed text: a changed system prompt costs the prompt cache, and the list of others changed nearly every turn.
         return [
-          `You are conversation #${input.conversationId}. Other conversations in this project are separate agents with their own context, and some may work in your checkout: check \`git status\` before broad changes, never revert or reformat changes you did not make, and coordinate through the user.`,
+          'Other conversations in this project are separate agents with their own context, and some may work in your checkout: check `git status` before broad changes, never revert or reformat changes you did not make, and coordinate through the user.',
           'In codemode, `ultimate.conversations()` lists them with title, cwd and whether they are busy or concluded; `ultimate.entries(id)` shows what one did; `ultimate.projects()` lists other projects.',
         ].join('\n')
       }),

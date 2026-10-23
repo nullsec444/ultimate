@@ -7,7 +7,7 @@ import { configure, ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { context } from '../server/harness.ts'
 import { Metadata } from '../server/metadata.ts'
-import { Board } from '../extensions/board/api.ts'
+import { Messages } from '../extensions/messages/api.ts'
 import { Branch, Roots } from '../extensions/lineage/api.ts'
 import { rootOf } from '../extensions/lineage/server.ts'
 import { Standing } from '../extensions/subagents/api.ts'
@@ -90,7 +90,7 @@ async function entries(server: Server, id: ConversationId) {
   )
 }
 async function log(server: Server) {
-  return (await server.harness.snapshot(Board, ROOT_CONVERSATION_ID, context))?.messages ?? []
+  return (await server.harness.snapshot(Messages, ROOT_CONVERSATION_ID, context))?.messages ?? []
 }
 async function ask(server: Server, id: ConversationId, text: string) {
   const conversation = (await server.harness.conversation(id, context))!
@@ -134,7 +134,7 @@ it.concurrent('ships a resident Ultimate definition with valid tools; standing a
   ).not.toContain('branch')
 })
 
-it.concurrent('starts a lineage branch with a board input and caller attribution, returns its answer, and selects roots', async () => {
+it.concurrent('starts a lineage branch with a message input and caller attribution, returns its answer, and selects roots', async () => {
   const f = await fixture()
   await seedTally(f.server.harness)
   const ultimate = await f.subagents.standing('ultimate', context)
@@ -293,7 +293,7 @@ it.concurrent('refreshes standing definitions before delivering automatic replie
   await f.server.harness.waitForIdle(context)
 })
 
-it.concurrent('keeps Ultimate answers to board replies out of the log, including after reopen', async () => {
+it.concurrent('keeps Ultimate answers to messages replies out of the log, including after reopen', async () => {
   const f = await fixture()
   const ultimate = await f.subagents.standing('ultimate', context)
   const resident = (await f.server.harness.conversation(ultimate, context))!
@@ -334,7 +334,7 @@ it.concurrent('notes an @ultimate overlay as changed instructions and applies it
   expect(agent.instructions).toMatch(
     /^You are Ultimate[\s\S]*\n\n## User additions\n\nWrite notes freely\.$/,
   )
-  // A Board refresh applies the definition's tools, the overlay's included.
+  // A Messages refresh applies the definition's tools, the overlay's included.
   await f.subagents.standing('ultimate', context)
   const refreshed = await (await f.server.harness.conversation(ultimate, context))!.agent(context)
   expect(refreshed.tools.map((tool) => tool.name)).toContain('write')
@@ -369,7 +369,7 @@ it.concurrent('re-applies an updated @ultimate definition on a typed input and n
   const path = join(f.root, 'agents/ultimate.md')
   await writeFile(path, (await readFile(path, 'utf8')) + '\nNew rule: delegate extensions.\n')
   await writeFile(join(f.root, 'docs/subagents.md'), 'Changed docs.\n')
-  // A typed input, not a Board delivery, picks up the new definition.
+  // A typed input, not a Messages delivery, picks up the new definition.
   await ask(f.server, ultimate, 'second')
   expect(await instructions()).toContain('New rule: delegate extensions.')
   const [note] = await notes()
@@ -378,11 +378,11 @@ it.concurrent('re-applies an updated @ultimate definition on a typed input and n
   // The note comes once per change.
   await ask(f.server, ultimate, 'third')
   expect(await notes()).toHaveLength(1)
-  // A definition a Board delivery already applied, and a removed doc, are still named.
-  await writeFile(path, (await readFile(path, 'utf8')) + '\nBoard rule.\n')
+  // A definition a Messages delivery already applied, and a removed doc, are still named.
+  await writeFile(path, (await readFile(path, 'utf8')) + '\nMessages rule.\n')
   await rm(join(f.root, 'docs/worktrees.md'))
   await f.subagents.standing('ultimate', context)
-  expect(await instructions()).toContain('Board rule.')
+  expect(await instructions()).toContain('Messages rule.')
   await ask(f.server, ultimate, 'fourth')
   // Entries come newest first.
   expect((await notes())[0].data).toEqual({

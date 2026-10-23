@@ -2,7 +2,7 @@ import { CheckIcon, MessageCircleQuestionIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { api, cn, errorMessage, useConversation, useDocOf, useViewport } from '@/sdk'
-import { BoardDoc } from '../board/ui.tsx'
+import { MessagesDoc } from '../messages/ui.tsx'
 import { keyCard, openQuestions } from './open.tsx'
 import type { Message } from './open.tsx'
 import { AnswerAction, DismissAction, QuestionsDoc } from './refs.ts'
@@ -12,10 +12,10 @@ import { answered as ready, choiceForKey, choices, picks, position } from './sta
 
 /** Whether `card` is the one on the shown conversation's page that takes the desktop 1–9 and Enter keys. */
 function useKeys(card: string) {
-  const board = useDocOf(1, QuestionsDoc)
-  const messages = useDocOf(1, BoardDoc)?.messages ?? []
+  const log = useDocOf(1, QuestionsDoc)
+  const messages = useDocOf(1, MessagesDoc)?.messages ?? []
   const conversation = useConversation((value) => value.id)
-  return keyCard(board, conversation, messages) === card
+  return keyCard(log, conversation, messages) === card
 }
 
 /**
@@ -115,9 +115,8 @@ function Card({
         event.ctrlKey ||
         event.altKey ||
         target?.closest('input, textarea, select, [contenteditable="true"]') ||
-        // Outside this card, another card, a control or the Questions panel keeps its own keys.
-        (!root.current?.contains(target) &&
-          target?.closest('[data-questions-card], [data-open-questions], button, a'))
+        // Outside this card, another card or a control keeps its own keys.
+        (!root.current?.contains(target) && target?.closest('[data-questions-card], button, a'))
       )
         return
       const choice = /^[1-9a-z]$/.test(event.key)

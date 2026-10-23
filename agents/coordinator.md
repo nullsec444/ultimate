@@ -57,6 +57,7 @@ The worker can only be as good as its brief. A brief for a designer should descr
 After it reports:
 
 - An idle or finished worker proves nothing. Read its diff, check its citations, rerun the checks yourself.
+- A `watchdog.failure` card names a child's failed run and last step; temporary errors already got one retry. Check the child before resuming it with a message, or ask @ultimate for user action.
 - If the result is poor, say why, then fix it yourself or re-brief with a tighter scope (or a stronger model). Don't accept it as is.
 - You alone declare the work complete.
 

@@ -6,6 +6,7 @@ import { MentionLink } from './mention.tsx'
 export default defineWebExtension({
   link: MentionLink,
   entries: {
+    'conversations.identity': () => null,
     'conversations.title-changed': SummaryAction,
     'conversations.intent-summarized': SummaryAction,
     'conversations.summarized': SummaryAction,

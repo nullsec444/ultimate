@@ -1,6 +1,6 @@
 /**
  * Another running Ultimate instance of a project, reached over its own API: loopback when it runs on this machine, the
- * tailnet address its machine registered with the cloud elsewhere. Codemode reads through it and Board's
+ * tailnet address its machine registered with the cloud elsewhere. Codemode reads through it and Messages’
  * Ultimate-to-Ultimate messages travel it. Nothing falls back to a copy.
  */
 import { hostname } from 'node:os'

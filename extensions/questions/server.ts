@@ -12,14 +12,14 @@ import { ConversationsApi } from '../conversations/api.ts'
 import type { ConversationsService } from '../conversations/api.ts'
 import type { ResponseReceipt } from '../conversations/summary.ts'
 import type { SummaryModel } from '../conversations/summary-model.ts'
-import { Asked, Board, BoardApi } from '../board/api.ts'
-import type { BoardMessage } from '../board/api.ts'
+import { Asked, Messages, MessagesApi } from '../messages/api.ts'
+import type { Message } from '../messages/api.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { parseDecisions } from '../../lib/decisions.ts'
 
 import { AnswerAction, DismissAction, QuestionsDoc } from './refs.ts'
 import type { Question } from './types.ts'
-export const BoardQuestions = defineDoc<{
+export const MessageQuestions = defineDoc<{
   requested: number[]
   asked: Record<string, Question[]>
 }>({
@@ -31,12 +31,12 @@ export const BoardQuestions = defineDoc<{
   scope: 'conversation',
   initial: () => ({ requested: [], asked: {} }),
 })
-export const docs = [BoardQuestions]
-const open = (message: BoardMessage) =>
+export const docs = [MessageQuestions]
+const open = (message: Message) =>
   message.to === 'user' && message.reply && message.state === 'delivered'
 async function stateFor(tx: Tx) {
-  const log = await tx.doc(Board, ROOT_CONVERSATION_ID)
-  const state = await tx.doc(BoardQuestions, ROOT_CONVERSATION_ID)
+  const log = await tx.doc(Messages, ROOT_CONVERSATION_ID)
+  const state = await tx.doc(MessageQuestions, ROOT_CONVERSATION_ID)
   const ids = new Set(log.messages.map((message) => message.id))
   state.requested = state.requested.filter((id) => ids.has(id))
   for (const id of Object.keys(state.asked)) if (!ids.has(Number(id))) delete state.asked[id]
@@ -192,7 +192,7 @@ export function parseQuestions(text: string): Question[] {
 
 export const userActions = ['answer', 'dismiss']
 export const actions = {
-  /** Answer an open Board message, from its extracted questions or as free text: a user Board reply to its sender. */
+  /** Answer an open message, from its extracted questions or as free text: a user reply to its sender. */
   answer: implementAction(AnswerAction, async (args, { host, signal, device }) => {
     const data = args as {
       messageId: number
@@ -218,17 +218,17 @@ export const actions = {
     }, context)
     return {
       id: await host
-        .need(BoardApi)
+        .need(MessagesApi)
         .answer(data.messageId, reply, withAbortSignal(signal, context), device),
     }
   }),
-  /** Close an open Board message to the user unanswered; its sender gets a one-way note. */
+  /** Close an open message to the user unanswered; its sender gets a one-way note. */
   dismiss: implementAction(DismissAction, async (args, { host, signal, device }) => {
     const data = args as { messageId: number }
     if (!data || !Number.isSafeInteger(data.messageId)) throw new Error('Invalid message')
     return {
       id: await host
-        .need(BoardApi)
+        .need(MessagesApi)
         .dismiss(data.messageId, withAbortSignal(signal, context), device),
     }
   }),
@@ -236,7 +236,7 @@ export const actions = {
 
 export default function questionsExtension(host: ExtensionHost) {
   // Core, always on; resolved where it is called, declared here so the catalogue lists it.
-  host.need(BoardApi)
+  host.need(MessagesApi)
   const conversations = host.need(ConversationsApi)
   const abort = aborted(conversations)
   const Extract = defineTask<{ messageId: number; text: string }, { phase: 'extract' }, null>({

@@ -7,8 +7,8 @@ import { column } from '../lineage/ui.tsx'
 import { StartAction, StartsDoc } from './refs.ts'
 
 /**
- * An empty root starts with @ultimate's setup and reading, toward optional instructions; what it learns seeds the tally
- * every branch starts from.
+ * An empty root starts with @ultimate's setup and reading, toward optional instructions; what it learns becomes the
+ * project memory every branch starts from.
  */
 export function Familiarize({ id, dock }: { id: number; dock?: boolean }) {
   const project = useSystem()?.project.name

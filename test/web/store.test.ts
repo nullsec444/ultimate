@@ -2,40 +2,9 @@ import type { Op } from '@earendil-works/chord/delta'
 import type { ConversationView } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createStore } from '../../web/src/sdk/store.ts'
-import type { EventSourceLike } from '../../web/src/sdk/store.ts'
 import type { ServerEvents } from '../../shared/protocol.ts'
 
-class FakeSource implements EventSourceLike {
-  readyState = 0
-  closed = false
-  readonly listeners = new Map<string, ((event: Event) => void)[]>()
-  readonly url: string
-  constructor(url: string) {
-    this.url = url
-  }
-  addEventListener(name: string, listener: (event: Event) => void) {
-    this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener])
-  }
-  close() {
-    this.closed = true
-    this.readyState = 2
-  }
-  private dispatch(name: string, event: Event) {
-    for (const listener of this.listeners.get(name) ?? []) listener(event)
-  }
-  open() {
-    this.readyState = 1
-    this.dispatch('open', new Event('open'))
-  }
-  /** A dropped connection the browser retries (`closed: false`), or one the server refused. */
-  drop(closed = false) {
-    this.readyState = closed ? 2 : 0
-    this.dispatch('error', new Event('error'))
-  }
-  send<K extends keyof ServerEvents>(name: K, data: ServerEvents[K]) {
-    this.dispatch(name, new MessageEvent(name, { data: JSON.stringify(data) }))
-  }
-}
+import { FakeSource } from './fake-source.ts'
 
 function setup(retryMs = 5) {
   const sources: FakeSource[] = []

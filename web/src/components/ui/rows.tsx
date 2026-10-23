@@ -1,7 +1,7 @@
 import { cn } from 'cn'
 import type { ReactNode } from 'react'
 
-/** Label/value rows with aligned values, as the Info and Workspaces panels show them. */
+/** Label/value rows with aligned values, as the Info panel shows them. */
 export function Rows({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <dl

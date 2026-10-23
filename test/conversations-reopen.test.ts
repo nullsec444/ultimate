@@ -81,7 +81,7 @@ it('resumes ancestors in the commit that places any input, typed or extension', 
   }
 })
 
-it('a board message, and one sent by an automation run, resume a concluded recipient', async () => {
+it('a message, and one sent by an automation run, resume a concluded recipient', async () => {
   const f = await fixture()
   try {
     const target = f.unrelated.id

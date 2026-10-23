@@ -225,10 +225,16 @@ display.url(publicUrl)
 // in `ULTIMATE_BRIDGE_ALLOW`. Retries until the address exists, since a VPN interface can come up after the service.
 const bridge = process.env.ULTIMATE_BRIDGE
 const bridgeAllow = new Set(
-  (process.env.ULTIMATE_BRIDGE_ALLOW ?? '').split(',').map((entry) => entry.trim()).filter(Boolean),
+  (process.env.ULTIMATE_BRIDGE_ALLOW ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
 )
 const bridgeServer = createServer((socket) => {
-  if (!bridgeAllow.has(socket.remoteAddress?.replace(/^::ffff:/, '') ?? '')) return socket.destroy()
+  if (!bridgeAllow.has(socket.remoteAddress?.replace(/^::ffff:/, '') ?? '')) {
+    socket.destroy()
+    return
+  }
   sockets.add(socket)
   socket.on('error', () => {})
   socket.on('close', () => {

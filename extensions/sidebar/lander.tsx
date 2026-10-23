@@ -1,8 +1,8 @@
 import { cn, Provided } from '@/sdk'
-import { stateTone, stateWord } from '../board/ui.tsx'
-import type { ConversationState } from '../board/ui.tsx'
+import { stateTone, stateWord } from '../messages/ui.tsx'
+import type { ConversationState } from '../messages/ui.tsx'
 import type { useWorkspaceIndex } from '../workspaces/ui.tsx'
-import { ConversationPhase, FeatureTag } from '../conversations/ui.tsx'
+import { ConversationPhase } from '../conversations/ui.tsx'
 
 /** `now`, `5m`, `3h`, `2d`, then a short date. */
 export function ago(at: number, now: number) {
@@ -22,8 +22,8 @@ export function ago(at: number, now: number) {
 
 /**
  * The lander's line: "fixing" or "diagnosing" while its model works on a failure, a pulsing "landing" while it lands,
- * its working phase (or "working") while it answers someone, else its conversation state (failed, awaiting, idle); then its latest landing's feature, short sha and age, and how many
- * submissions wait in its queue.
+ * its working phase (or "working") while it answers someone, else its conversation state (failed, awaiting, idle); then
+ * how many submissions wait in its queue and when it last landed. What landed is its Landed section's first row.
  */
 export function LanderState(props: LanderProps) {
   return (
@@ -74,15 +74,6 @@ function PhasedLanderState({ id, index, now, state, phase }: LanderProps & { pha
         </span>
       )}
       {queued > 0 && <span className="shrink-0 text-foreground/80">queue {queued}</span>}
-      {last?.sha && (
-        <span
-          className="flex min-w-0 items-center gap-1"
-          title={[last.subject?.feature, last.subject?.title].filter(Boolean).join(' · ')}
-        >
-          <span className="shrink-0 text-success/90">{last.sha.slice(0, 7)}</span>
-          {last.subject?.feature && <FeatureTag feature={last.subject.feature} />}
-        </span>
-      )}
       {at !== undefined && (
         <span
           className="ml-auto shrink-0 text-muted-foreground/80"

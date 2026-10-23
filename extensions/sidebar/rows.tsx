@@ -20,7 +20,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, cn, errorMessage, Provided, useDocOf, useUltimate } from '@/sdk'
 import { store } from '@/sdk/client'
-import { BoardDoc, conversationState, emptyBoard } from '../board/ui.tsx'
+import { MessagesDoc, conversationState, emptyMessages } from '../messages/ui.tsx'
 import {
   AgentMark,
   agentTitle,
@@ -33,7 +33,7 @@ import type { Presence } from '../conversations/ui.tsx'
 import { Review } from '../workspaces/ui.tsx'
 import type { WorkspaceConversation as ConversationSummary } from '../workspaces/ui.tsx'
 import type { OverviewRow } from '../conversations/types.ts'
-import type { ConversationState } from '../board/ui.tsx'
+import type { ConversationState } from '../messages/ui.tsx'
 import { ago } from './lander.tsx'
 
 /** What a row's mark and state word say for each settled state; `working` and `idle` show no icon. */
@@ -147,8 +147,6 @@ function PhasedRow({
   const cancelled = useRef(false)
   /** Whether the row button takes focus back once the field closes: after Enter or Escape, not a click elsewhere. */
   const refocus = useRef(false)
-  /** What a menu item does once the menu has closed, so focus lands where it should. */
-  const afterMenu = useRef<() => void>(undefined)
   const name =
     conversation.title ??
     (draft
@@ -164,11 +162,7 @@ function PhasedRow({
   }
   const save = (value: string) => {
     setEditing(false)
-    if (cancelled.current) return
-    const title = value.trim()
-    void api
-      .action(RenameAction, { id: conversation.id, title })
-      .catch((error: unknown) => store.notify({ level: 'error', message: errorMessage(error) }))
+    if (!cancelled.current) saveTitle(conversation.id, value)
   }
   const title = (
     <span
@@ -264,70 +258,102 @@ function PhasedRow({
         </button>
       )}
       {(!draft || conversation.workspace) && !editing && (
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger
-            aria-label="Conversation actions"
-            className="invisible absolute right-1 bottom-1 flex size-5 cursor-pointer items-center justify-center rounded-sm text-muted-foreground outline-none group-focus-within:visible group-hover:visible pointer-coarse:visible hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:visible data-[state=open]:bg-sidebar-accent data-[state=open]:text-foreground"
-          >
-            <EllipsisIcon className="size-3.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="w-44 [&_[role=menuitem]]:cursor-pointer"
-            onCloseAutoFocus={(event) => {
-              const next = afterMenu.current
-              afterMenu.current = undefined
-              if (!next) return
-              event.preventDefault()
-              next()
-            }}
-          >
-            {conversation.workspace && (
-              <DropdownMenuItem
-                className="cursor-pointer text-[12.5px]"
-                onSelect={() =>
-                  (afterMenu.current = () => {
-                    actions.switchConversation(conversation.id)
-                    actions.openPanel('workspaces')
-                  })
-                }
-              >
-                <GitBranchIcon />
-                Workspace details
-              </DropdownMenuItem>
-            )}
-            {conversation.workspace && conversation.workspace.state !== 'removed' && (
-              <Provided input={`branch:${conversation.workspace.branch}`} point={Review}>
-                {(open) =>
-                  open && (
-                    <DropdownMenuItem
-                      className="cursor-pointer text-[12.5px]"
-                      onSelect={() => (afterMenu.current = open)}
-                    >
-                      <FileDiffIcon />
-                      Review changes
-                    </DropdownMenuItem>
-                  )
-                }
-              </Provided>
-            )}
-            <DropdownMenuItem
-              className="text-[12.5px]"
-              onSelect={() => (afterMenu.current = rename)}
-            >
-              <PencilIcon />
-              Rename
-            </DropdownMenuItem>
-            <CompactItem conversation={conversation} />
-            <DropdownMenuItem className="text-[12.5px]" onSelect={() => onConclude(!concluded)}>
-              <CircleCheckIcon />
-              {concluded ? 'Resume' : 'Conclude'}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <RowMenu
+          concluded={concluded}
+          conversation={conversation}
+          onConclude={onConclude}
+          onRename={rename}
+        />
       )}
     </div>
   )
+}
+
+/**
+ * A conversation's `…` menu, at its row's bottom right on hover or focus: its workspace and changes when isolated,
+ * Rename, Compact context, and Conclude or Resume.
+ */
+export function RowMenu({
+  conversation,
+  concluded,
+  onRename,
+  onConclude,
+}: {
+  conversation: ConversationSummary
+  concluded: boolean
+  onRename: () => void
+  onConclude: (conclude: boolean) => void
+}) {
+  const actions = useUltimate()
+  /** What a menu item does once the menu has closed, so focus lands where it should. */
+  const afterMenu = useRef<() => void>(undefined)
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger
+        aria-label="Conversation actions"
+        className="invisible absolute right-1 bottom-1 flex size-5 cursor-pointer items-center justify-center rounded-sm text-muted-foreground outline-none group-focus-within:visible group-hover:visible pointer-coarse:visible hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:visible data-[state=open]:bg-sidebar-accent data-[state=open]:text-foreground"
+      >
+        <EllipsisIcon className="size-3.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-44 [&_[role=menuitem]]:cursor-pointer"
+        onCloseAutoFocus={(event) => {
+          const next = afterMenu.current
+          afterMenu.current = undefined
+          if (!next) return
+          event.preventDefault()
+          next()
+        }}
+      >
+        {conversation.workspace && (
+          <DropdownMenuItem
+            className="cursor-pointer text-[12.5px]"
+            onSelect={() =>
+              (afterMenu.current = () => {
+                actions.switchConversation(conversation.id)
+                actions.openPanel('info')
+              })
+            }
+          >
+            <GitBranchIcon />
+            Workspace details
+          </DropdownMenuItem>
+        )}
+        {conversation.workspace && conversation.workspace.state !== 'removed' && (
+          <Provided input={`branch:${conversation.workspace.branch}`} point={Review}>
+            {(open) =>
+              open && (
+                <DropdownMenuItem
+                  className="cursor-pointer text-[12.5px]"
+                  onSelect={() => (afterMenu.current = open)}
+                >
+                  <FileDiffIcon />
+                  Review changes
+                </DropdownMenuItem>
+              )
+            }
+          </Provided>
+        )}
+        <DropdownMenuItem className="text-[12.5px]" onSelect={() => (afterMenu.current = onRename)}>
+          <PencilIcon />
+          Rename
+        </DropdownMenuItem>
+        <CompactItem conversation={conversation} />
+        <DropdownMenuItem className="text-[12.5px]" onSelect={() => onConclude(!concluded)}>
+          <CircleCheckIcon />
+          {concluded ? 'Resume' : 'Conclude'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** Saves a conversation's new title; an empty one clears it. Failures show as a notification. */
+export function saveTitle(id: number, value: string) {
+  void api
+    .action(RenameAction, { id, title: value.trim() })
+    .catch((error: unknown) => store.notify({ level: 'error', message: errorMessage(error) }))
 }
 
 /**
@@ -428,6 +454,79 @@ type ChildRowProps = {
   parked?: boolean
 }
 
+/**
+ * A subagent in one line under an In flight branch: its mark, plan chip, role and `#id`, and its state word; its
+ * latest activity (or plan task) on hover. `depth` indents a subagent's own subagents.
+ */
+export function SubagentLine(props: ChildRowProps & { depth: number }) {
+  return (
+    <Provided input={props.conversation.id} point={ConversationTask}>
+      {(task) => <TaskedSubagentLine {...props} task={task} />}
+    </Provided>
+  )
+}
+
+function TaskedSubagentLine({
+  conversation,
+  row,
+  shown,
+  primary,
+  parked,
+  depth,
+  task,
+}: ChildRowProps & { depth: number; task?: { chip: ReactNode; title: string } }) {
+  const actions = useUltimate()
+  const log = useDocOf(1, MessagesDoc) ?? emptyMessages
+  const state = conversationState(
+    {
+      id: conversation.id,
+      kind: 'subagent',
+      runState: row?.runState,
+      busy: conversation.busy,
+      parked,
+      primary,
+    },
+    log,
+  )
+  const working = state === 'working'
+  const known = state in settled ? settled[state as keyof typeof settled] : undefined
+  return (
+    <button
+      aria-current={shown ? 'true' : undefined}
+      className={cn(
+        'mx-2 flex h-6 w-[calc(100%-1rem)] min-w-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 text-left font-mono text-[10.5px] outline-none hover:bg-sidebar-accent/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+        shown && 'bg-sidebar-accent',
+      )}
+      data-child-conversation={conversation.id}
+      onClick={() => actions.switchConversation(conversation.id)}
+      style={{ paddingLeft: 20 + depth * 12 }}
+      title={[
+        `${conversation.label ?? 'Agent'} · #${conversation.id}`,
+        task?.title ?? row?.activity ?? conversation.title,
+      ]
+        .filter(Boolean)
+        .join('\n')}
+      type="button"
+    >
+      <span className="w-2 shrink-0 text-muted-foreground/40">└</span>
+      <Mark state={state} unseen={false} working={working ? 'self' : undefined} />
+      {task?.chip}
+      <span className="min-w-0 flex-1 truncate text-foreground/75">
+        {conversation.label ?? 'agent'}
+        <span className="text-muted-foreground/60"> #{conversation.id}</span>
+      </span>
+      <span
+        className={cn(
+          'shrink-0 text-[10px]',
+          working ? 'text-brand' : (known?.tone ?? 'text-muted-foreground/70'),
+        )}
+      >
+        {working ? 'working' : (known?.word.toLowerCase() ?? 'idle')}
+      </span>
+    </button>
+  )
+}
+
 /** A subagent under its conversation; one working on a plan task leads with its chip and shows the task's title. */
 export function ChildRow(props: ChildRowProps) {
   return (
@@ -446,7 +545,7 @@ function TaskedChildRow({
   task,
 }: ChildRowProps & { task?: { chip: ReactNode; title: string } }) {
   const actions = useUltimate()
-  const board = useDocOf(1, BoardDoc) ?? emptyBoard
+  const log = useDocOf(1, MessagesDoc) ?? emptyMessages
   const state = conversationState(
     {
       id: conversation.id,
@@ -456,7 +555,7 @@ function TaskedChildRow({
       parked,
       primary,
     },
-    board,
+    log,
   )
   const working = state === 'working'
   return (

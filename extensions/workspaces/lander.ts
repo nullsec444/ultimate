@@ -1057,7 +1057,7 @@ export function createLander(
               deploy?.paths.some((prefix) => path.startsWith(prefix)),
             )
             if (deploy && result && paths.length) {
-              const board = host.want(Handoff)
+              const messages = host.want(Handoff)
               const definitions = await discoverAgents(
                 host.ultimateRoot,
                 host.projectRoot,
@@ -1065,16 +1065,16 @@ export function createLander(
                 host.modelRuntime,
               )
               if (
-                !board ||
+                !messages ||
                 !definitions.definitions.some(
                   (definition) => definition.name === deploy.agent && definition.resident,
                 )
               ) {
-                deployText = `deploy warning: @${deploy.agent} is not a standing agent${board ? '' : ' (board unavailable)'}`
+                deployText = `deploy warning: @${deploy.agent} is not a standing agent${messages ? '' : ' (messages unavailable)'}`
                 host.notice(deployText)
               } else {
                 try {
-                  await board.send(
+                  await messages.send(
                     runtime.conversationId,
                     {
                       to: `@${deploy.agent}`,

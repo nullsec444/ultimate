@@ -145,16 +145,70 @@ function status(task: TaskGraphNode): {
   }
 }
 
-export function TaskRow({ task, tree, depth }: { task: TaskGraphNode; tree: Tree; depth: number }) {
+/**
+ * Where a row sits in the tree: its depth, and for each ancestor level whether a sibling follows below (its rail goes
+ * on); `last` when no sibling follows this row.
+ */
+type Place = { depth: number; rails?: readonly boolean[]; last?: boolean }
+
+const INDENT = 14
+const EDGE = 12
+/** The x of the icon's centre at `depth`, where its children's lines start. */
+const axis = (depth: number) => EDGE + depth * INDENT + 6
+
+/**
+ * Dashed elbows from a parent's icon to each child's, with the rails of ancestors that have more children below: the
+ * shape of the task graph, kept quieter and distinct from the sidebar's solid branch rails.
+ */
+function Guides({ depth, rails = [], last = true }: Place) {
+  if (depth === 0) return null
+  const line = 'pointer-events-none absolute border-muted-foreground/35 border-dashed'
+  return (
+    <span aria-hidden>
+      {rails
+        .slice(0, depth - 1)
+        .map((on, level) =>
+          on ? (
+            <span
+              className={cn(line, 'inset-y-0 border-l')}
+              key={level}
+              style={{ left: axis(level) }}
+            />
+          ) : null,
+        )}
+      <span
+        className={cn(line, 'top-0 border-l', last ? 'h-1/2' : 'bottom-0')}
+        style={{ left: axis(depth - 1) }}
+      />
+      <span
+        className={cn(line, 'top-1/2 border-t')}
+        style={{ left: axis(depth - 1), width: INDENT - 8 }}
+      />
+    </span>
+  )
+}
+
+/** The places of a row's children, tasks then conversations, in order. */
+const places = (count: number, { depth, rails = [], last = true }: Place) =>
+  Array.from({ length: count }, (_, index) => ({
+    depth: depth + 1,
+    rails: [...rails.slice(0, depth - 1), ...(depth > 0 ? [!last] : [])],
+    last: index === count - 1,
+  }))
+
+export function TaskRow({ task, tree, ...place }: { task: TaskGraphNode; tree: Tree } & Place) {
   const { text, tone, icon } = status(task)
   const kind = task.kind.replace(/^pi\./, '')
   const tool = tree.tools.get(task.id)
+  const children = tree.children.get(task.id) ?? []
+  const below = places(children.length + task.conversations.length, place)
   return (
     <>
       <div
-        className="flex min-w-0 items-center gap-1.5 py-1.5 pr-3 font-mono text-[11.5px]"
-        style={{ paddingLeft: `${0.75 + depth * 0.9}rem` }}
+        className="relative flex min-w-0 items-center gap-1.5 py-1.5 pr-3 font-mono text-[11.5px]"
+        style={{ paddingLeft: EDGE + place.depth * INDENT }}
       >
+        <Guides {...place} />
         <ToolStatusIcon className="size-3" state={icon} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-foreground/90">{tool ?? kind}</span>
@@ -186,11 +240,11 @@ export function TaskRow({ task, tree, depth }: { task: TaskGraphNode; tree: Tree
           <span className="shrink-0 text-[10.5px] text-warning">aborting</span>
         )}
       </div>
-      {(tree.children.get(task.id) ?? []).map((child) => (
-        <TaskRow depth={depth + 1} key={child.id} task={child} tree={tree} />
+      {children.map((child, index) => (
+        <TaskRow key={child.id} task={child} tree={tree} {...below[index]} />
       ))}
-      {task.conversations.map((id) => (
-        <ConversationRow depth={depth + 1} id={id} key={`c${id}`} tree={tree} />
+      {task.conversations.map((id, index) => (
+        <ConversationRow id={id} key={`c${id}`} tree={tree} {...below[children.length + index]} />
       ))}
     </>
   )
@@ -223,22 +277,25 @@ export function RetryButton({ id }: { id: number }) {
   )
 }
 
-function ConversationRow({ id, tree, depth }: { id: number; tree: Tree; depth: number }) {
+function ConversationRow({ id, tree, ...place }: { id: number; tree: Tree } & Place) {
   const { conversationId, switchConversation } = useUltimate()
   const summary = tree.summaries.get(id)
   const shown = conversationId === id
+  const tasks = tree.roots.get(id) ?? []
+  const below = places(tasks.length, place)
   return (
     <>
       <button
         className={cn(
-          'flex w-full min-w-0 items-center gap-1.5 py-1.5 pr-3 text-left font-mono text-[11.5px] transition-colors hover:bg-accent/50',
+          'relative flex w-full min-w-0 items-center gap-1.5 py-1.5 pr-3 text-left font-mono text-[11.5px] transition-colors hover:bg-accent/50',
           shown && 'bg-accent/60',
         )}
         onClick={() => switchConversation(id)}
-        style={{ paddingLeft: `${0.75 + depth * 0.9}rem` }}
+        style={{ paddingLeft: EDGE + place.depth * INDENT }}
         title={shown ? 'Shown' : 'Show this conversation'}
         type="button"
       >
+        <Guides {...place} />
         <MessageSquareIcon
           className={cn('size-3 shrink-0', shown ? 'text-brand' : 'text-muted-foreground')}
         />
@@ -263,8 +320,8 @@ function ConversationRow({ id, tree, depth }: { id: number; tree: Tree; depth: n
           </span>
         </span>
       </button>
-      {(tree.roots.get(id) ?? []).map((task) => (
-        <TaskRow depth={depth + 1} key={task.id} task={task} tree={tree} />
+      {tasks.map((task, index) => (
+        <TaskRow key={task.id} task={task} tree={tree} {...below[index]} />
       ))}
     </>
   )
@@ -337,7 +394,7 @@ function useRunStart(id: number | undefined): number | undefined {
 
 export default defineWebExtension({
   provides: [provide(RunStart, useRunStart)],
-  panels: [{ id: 'tasks', title: 'Tasks', icon: ListTreeIcon, component: TasksPanel, order: -5 }],
+  panels: [{ id: 'tasks', title: 'Tasks', icon: ListTreeIcon, component: TasksPanel, order: 1 }],
   commands: [
     {
       id: 'tasks.open',

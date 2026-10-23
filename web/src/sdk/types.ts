@@ -28,6 +28,8 @@ export interface PanelContribution {
   icon?: ComponentType<{ className?: string }>
   component: ComponentType
   order?: number
+  /** `false` keeps the panel out of the tab row until it is opened (`openPanel`, a command); default `true`. */
+  tab?: boolean
 }
 
 /**
@@ -79,7 +81,7 @@ export type ToolRenderer = ComponentType<{ call: ToolCallView; core: ReactNode }
 export type ToolLineRenderer = ComponentType<{ call: ToolCallView }>
 /**
  * `core` is the core's rendering of the entry: return it for entries you leave alone, or wrap it. `blocks` are the
- * content blocks of an assistant message a chat row shows, when it shows only some.
+ * content blocks of an assistant message a compact row shows, when it shows only some.
  */
 export type EntryRenderer = ComponentType<{
   entry: EntryRecord
@@ -162,45 +164,45 @@ export interface CommandContribution {
 }
 
 /**
- * A conversation that reads as a chat: each run of tool calls and thinking between its inputs, messages and answers folds
+ * A conversation that uses compact mode: each run of tool calls and thinking between its inputs, messages and answers folds
  * into one "worked · N steps" row that expands to the usual rendering.
  */
-export interface ChatContribution {
-  /** Whether a conversation reads as a chat. */
+export interface CompactContribution {
+  /** Whether a conversation uses compact mode. */
   when: (conversation: ConversationSummary) => boolean
   /**
    * Calls that stay visible between folded runs, such as the messages it sends: a tool name, or a test of a call, such
    * as a script whose nested calls sent a message.
    */
-  tools?: readonly (string | ChatCallTest)[]
+  tools?: readonly (string | CompactCallTest)[]
   /** Kinds of the root conversation's documents the tests read; the transcript follows them and passes them in. */
   docs?: readonly string[]
   /**
-   * Rows that are background to the chat, such as traffic between agents: two or more in a row, with the runs of work
+   * Rows that are background to the conversation, such as traffic between agents: two or more in a row, with the runs of work
    * between them, fold into one line that expands to them. A row is a stored entry with the visible calls it shows.
    */
-  quiet?: ChatQuietTest
+  quiet?: CompactQuietTest
   /** The line a folded group of quiet rows shows; the first matching facet's wins, a step count otherwise. */
-  summary?: ComponentType<ChatSummaryProps>
+  summary?: ComponentType<CompactSummaryProps>
 }
-/** A row of a chat: an entry, and the visible tool calls it shows when it shows only some of its blocks. */
-export interface ChatRow {
+/** A compact transcript row: an entry, and the visible tool calls it shows when it shows only some of its blocks. */
+export interface CompactRow {
   entry: EntryRecord
   calls: readonly ToolCall[]
 }
 /** Whether a row is background; `hidden` for one that renders nothing, which joins a group without counting. */
-export type ChatQuietTest = (row: ChatRow, docs: ChatDocs) => boolean | 'hidden'
-export interface ChatSummaryProps {
+export type CompactQuietTest = (row: CompactRow, docs: CompactDocs) => boolean | 'hidden'
+export interface CompactSummaryProps {
   /** The group's rows that are no runs of work. */
-  rows: readonly ChatRow[]
+  rows: readonly CompactRow[]
   /** Steps in its runs of work. */
   steps: number
   /** Whether the agent still works in it. */
   working: boolean
 }
 /** The root conversation's documents of the contributions' `docs` kinds, by kind, as `useDocOf(1, kind)` reads them. */
-export type ChatDocs = Readonly<Record<string, Readonly<JsonObject> | null | undefined>>
-export type ChatCallTest = (call: ToolCall, docs: ChatDocs) => boolean
+export type CompactDocs = Readonly<Record<string, Readonly<JsonObject> | null | undefined>>
+export type CompactCallTest = (call: ToolCall, docs: CompactDocs) => boolean
 
 /**
  * What an empty conversation says it is, and its composer's placeholder, for matching conversations; the last matching
@@ -258,7 +260,7 @@ export interface WebExtension {
   surfaces?: readonly SurfaceContribution[]
   /** Tool-call renderers by tool name. */
   tools?: Readonly<Record<string, ToolRenderer>>
-  /** One-line step texts by tool name, for the chat's folded work rows; the last facet providing a name wins. */
+  /** One-line step texts by tool name, for the compact transcript's folded work rows; the last facet providing a name wins. */
   toolLines?: Readonly<Record<string, ToolLineRenderer>>
   /** Entry renderers by entry kind; they also replace the core renderer of a `pi.*` kind. */
   entries?: Readonly<Record<string, EntryRenderer>>
@@ -273,8 +275,8 @@ export interface WebExtension {
   messageDetails?: readonly ComponentType<{ entry: EntryRecord }>[]
   /** Inline labels after the Final answer heading on stored assistant messages. */
   answerLabels?: readonly ComponentType<{ entry: EntryRecord }>[]
-  /** Shows matching conversations as a chat; the visible tools of every matching facet combine. */
-  chat?: ChatContribution
+  /** Shows matching conversations in compact mode; the visible tools of every matching facet combine. */
+  compact?: CompactContribution
   /** The empty state's wording and the composer's placeholder for matching conversations. */
   intro?: IntroContribution
   /** Document renderers; a later facet wins a kind. */

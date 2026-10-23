@@ -27,8 +27,8 @@ The existing `workspace_workflow` prompt section starts and waits for the same d
 on creation; setup commands run again before the model can use tools.
 Failed setup keeps its output tail and never force-removes dirty output. The conversation's next tool call retries it (checkout and setup again), so fixing the cause, such as a PATH without `pnpm`, takes effect in the same conversation; until it succeeds every tool call is blocked with the setup's error.
 
-The Workspaces panel shows the lander queue, statistics over every checkout, and the shown conversation's checkout,
-read-only: landing goes through agents. Concluding a conversation can release its clean, landed checkout.
+Info's Workspace section (`Workspaces` in `ui.tsx`) shows the lander queue, the shown conversation's checkout and
+statistics over every checkout, read-only: landing goes through agents. Concluding a conversation can release its clean, landed checkout.
 `isolation` says why the project cannot be isolated, if it cannot; `info {id}` reads the record and current tips; `create {cwd?, title?}` returns a new conversation ID.
 `github` returns `https://github.com/<owner>/<repo>` of the project's `origin`, or null off GitHub; landing cards and
 the root row link commit ranges with it.
@@ -66,7 +66,7 @@ once (`btrfs filesystem du`). Measuring takes seconds, so one runs at a time and
 ## Lander
 
 Each submission and its landing result appear in the submitting conversation as tool and outcome cards.
-The `@lander` conversation keeps the full log in `ultimate.lander` entries; these do not depend on Board.
+The `@lander` conversation keeps the full log in `ultimate.lander` entries; these do not depend on Messages.
 
 `workspace submit` requires a non-empty `divergence` string: how the delivered result differs from the original
 request (new agreements, different approach or library, changed scope), or "None" when it matches. It queues a
@@ -141,12 +141,12 @@ lander's sidebar row shows the feature it lands or landed last.
    whether it pushed, "Needs restart." for `server/` or `shared/` changes to the running clone, and the lander
    conversation id for the full log (changed paths and output tails live there).
 
-7. With `lander.deploy`, if any landed changed path starts with a configured prefix, sends one one-way board
-   message (through the `workspaces.handoff` extension point, which board provides) from the lander to the named
+7. With `lander.deploy`, if any landed changed path starts with a configured prefix, sends one one-way
+   message (through the `workspaces.handoff` extension point, which messages provides) from the lander to the named
    standing agent. It asks the agent to deploy the landed SHA and report to the submitter, with the commit subjects,
    matching paths and push status. This is a handoff, not a deployment: the lander does not wait.
    `deploy → @<agent>` appears in the submit card's steps, full log and report, which is why the handoff stays in
-   the lander's report phase rather than reacting to `workspaces.landed`. Board admission and a sender-scoped
+   the lander's report phase rather than reacting to `workspaces.landed`. Messages admission and a sender-scoped
    receipt (`lander-deploy:<submission>`) commit atomically, so replaying after a crash cannot send twice, even when
    a new lander task resumes the report. An unknown or non-resident agent, or a failed handoff, records a warning
    step and notice; the landing stays landed. Invalid deploy settings give a notice and disable only the hook. No
@@ -155,7 +155,7 @@ lander's sidebar row shows the feature it lands or landed last.
 Settings (`.ultimate/settings.json`): `"lander": { "checks": ["pnpm check", [{ "command": "pnpm test", "timeout": 180 }, "pnpm test:e2e"]], "push": "origin" }`;
 both are optional. Optional `"deploy": { "agent": "cloudflare", "paths": ["src/", "wrangler.json"] }` inside
 `lander` enables the deploy handoff. `paths` is a non-empty list of non-empty path prefixes (not globs), and `agent`
-must name a resident agent. The board must be enabled.
+must name a resident agent. The messages extension must be enabled.
 
 ### The lander's model
 

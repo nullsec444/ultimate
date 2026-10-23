@@ -28,11 +28,13 @@ import type { ActionArgs, ActionError, ActionOptions } from './api.ts'
 import { actionRef, docRef } from '../../../shared/extension-api.ts'
 import type { ActionRef, DocRef } from '../../../shared/extension-api.ts'
 import { api, registry, store, uiState } from './client.ts'
-import { HOME, chatTools, documentItems, introOf } from './registry.ts'
+import { HOME, compactTools, documentItems, introOf } from './registry.ts'
 import type { State } from './store.ts'
 import { errorMessage, formatDuration } from './format.ts'
-import type { ChatRow, ToolCallView, UltimateContext } from './types.ts'
+import type { CompactRow, ToolCallView, UltimateContext } from './types.ts'
 import { useViewport } from './viewport.ts'
+import { ConversationIdContext, TranscriptContext } from './conversation-scope.tsx'
+export { TranscriptContext } from './conversation-scope.tsx'
 
 /** Page readiness is sticky; failed facet names remain available even before ready. */
 export function useReady(): {
@@ -50,9 +52,9 @@ export function useStore<T>(select: (state: State) => T): T {
 }
 
 export interface ConversationState {
-  /** The shown conversation, once its snapshot arrived. */
+  /** The scoped (or shown) conversation, once its snapshot arrived. */
   id?: number
-  /** True until the snapshot of the shown conversation arrived. */
+  /** True until this conversation's snapshot arrived. */
   loading: boolean
   /**
    * The streamed active entries, oldest first: the head marker and the newest entries of a long context, all of a short
@@ -108,16 +110,26 @@ function derive(view: StreamedView | undefined): ConversationState {
 }
 
 /**
- * The shown conversation's replica, or the part `select` picks: then it re-renders only when that part changes, which
+ * The scoped (or shown) conversation's replica, or the part `select` picks: it re-renders only when that part changes, which
  * matters for anything rendered per transcript row while a run streams.
  */
 export function useConversation(): ConversationState
 export function useConversation<T>(select: (conversation: ConversationState) => T): T
 export function useConversation<T>(select?: (conversation: ConversationState) => T) {
-  return useStore((state) => (select ? select(derive(state.view)) : derive(state.view)))
+  const id = useContext(ConversationIdContext)
+  return useStore((state) => {
+    const conversation = derive(id === undefined ? state.view : state.viewsOf[id])
+    return select ? select(conversation) : conversation
+  })
 }
-/** The shown conversation now, outside React: for commands and callbacks. Components use `useConversation()`. */
-export const getConversation = (): ConversationState => derive(store.getState().view)
+/**
+ * The shown conversation now, or the streamed conversation `id` (a command's `context.conversationId`), outside React:
+ * for commands and callbacks. Components use `useConversation()`.
+ */
+export const getConversation = (id?: number): ConversationState => {
+  const { view, viewsOf } = store.getState()
+  return derive(id === undefined || id === view?.conversation.id ? view : viewsOf[id])
+}
 /** The whole client state now, outside React (`useStore` inside). */
 export const getState = (): State => store.getState()
 export const useSystem = () => useStore((state) => state.system)
@@ -133,17 +145,21 @@ export const useNotices = () => useStore((state) => state.notices)
 export const useConnection = () => useStore((state) => state.connection)
 
 /**
- * The document `ref` names (an extension's `refs.ts`; `export const docs` of its server facet) on the shown
- * conversation; null until created.
+ * The document `ref` names (an extension's `refs.ts`; `export const docs` of its server facet) on the scoped
+ * conversation, or the shown one outside a scope; null until created.
  */
 export function useDoc<T>(ref: DocRef<T>): Readonly<T> | null | undefined {
   return useDocKind(ref.kind) as Readonly<T> | null | undefined
 }
 
-/** A document of the shown conversation by kind, untyped: only for views of every kind, such as the documents panel. */
+/** A document of the scoped (or shown) conversation by kind, untyped: for views such as the documents panel. */
 export function useDocKind(kind: string): Readonly<JsonObject> | null | undefined {
-  useEffect(() => store.watchDoc(kind), [kind])
-  return useStore((state) => state.docs[kind])
+  const id = useContext(ConversationIdContext)
+  useEffect(
+    () => (id === undefined ? store.watchDoc(kind) : store.watchDocOf(id, kind)),
+    [id, kind],
+  )
+  return useStore((state) => (id === undefined ? state.docs[kind] : state.docsOf[id]?.[kind]))
 }
 
 /**
@@ -186,9 +202,11 @@ export function useEvents<T extends EventToken = EventToken>(
   }, [feed, kinds, limit])
 }
 
-/** The shown conversation and surface ids, and the shell's actions. */
+/** The scoped (or shown) conversation id, the shell's surface id and its global actions. */
 export function useUltimate(): UltimateContext {
-  const conversationId = useStore((state) => state.view?.conversation.id)
+  const scoped = useContext(ConversationIdContext)
+  const shown = useConversation((conversation) => conversation.id)
+  const conversationId = scoped ?? shown
   const surface = useStore((state) => state.ui.surface?.id) ?? HOME
   return useMemo(() => ({ ...actions, conversationId, surface }), [conversationId, surface])
 }
@@ -241,15 +259,15 @@ export type Widen<T> = T extends boolean
       ? number
       : T
 
-/** The rows a transcript has loaded, oldest first; the transcript provides it to the entries it renders. */
-export const TranscriptContext = createContext<readonly EntryRecord[]>([])
-
 /**
  * The entries the transcript around a contribution has loaded, oldest first: the active context and any earlier
  * history the reader paged in. Entry renderers and message contributions relate an entry to its neighbours with it.
  */
 export function useTranscript(): readonly EntryRecord[] {
-  return useContext(TranscriptContext)
+  const entries = useContext(TranscriptContext)
+  const scoped = useContext(ConversationIdContext)
+  const active = useConversation((conversation) => conversation.entries)
+  return entries ?? (scoped === undefined ? empty.entries : active)
 }
 
 /** The extension whose contribution is rendering; the shell provides it. */
@@ -275,48 +293,51 @@ export function useDialog(id: string): [boolean, (open: boolean) => void] {
 export function useExtensions() {
   return useSyncExternalStore(registry.subscribe, registry.getSnapshot)
 }
-const chatFailures = new Set<string>()
-/** Reports a `chat.when` that threw once per message, as a notice naming its extension. */
-function reportChat(extension: string, error: unknown) {
-  const message = `extension ${extension}: chat is off, its when() threw: ${errorMessage(error)}`
-  if (chatFailures.has(message)) return
-  chatFailures.add(message)
+const compactFailures = new Set<string>()
+/** Reports a `compact.when` that threw once per message, as a notice naming its extension. */
+function reportCompact(extension: string, error: unknown) {
+  const message = `extension ${extension}: compact is off, its when() threw: ${errorMessage(error)}`
+  if (compactFailures.has(message)) return
+  compactFailures.add(message)
   // Predicates run while React renders the transcript; notify after that render.
   queueMicrotask(() => store.notify({ level: 'error', message }))
 }
 const noDocs = {}
 /**
- * Which calls stay visible when the shown conversation reads as a chat (`chat` contributions), else `undefined`; it
+ * Which calls stay visible when the shown conversation uses compact mode (`compact` contributions), else `undefined`; it
  * follows the root documents the contributions' tests read.
  */
-export function useChat(): ((call: ToolCall) => boolean) | undefined {
-  const { chat, docs } = useChatConfig()
-  return useMemo(() => chat && ((call: ToolCall) => chat.keeps(call, docs)), [chat, docs])
+export function useCompact(): ((call: ToolCall) => boolean) | undefined {
+  const { compact, docs } = useCompactConfig()
+  return useMemo(() => compact && ((call: ToolCall) => compact.keeps(call, docs)), [compact, docs])
 }
 /**
- * Which rows of the shown chat are background that folds into groups, and the line a group shows (`chat` contributions'
+ * Which rows of the shown compact transcript are background that folds into groups, and the line a group shows (`compact` contributions'
  * `quiet` and `summary`), else `undefined`.
  */
-export function useChatQuiet() {
-  const { chat, docs } = useChatConfig()
+export function useCompactQuiet() {
+  const { compact, docs } = useCompactConfig()
   return useMemo(
-    () => chat && { quiet: (row: ChatRow) => chat.quiet(row, docs), summary: chat.summary },
-    [chat, docs],
+    () =>
+      compact && { quiet: (row: CompactRow) => compact.quiet(row, docs), summary: compact.summary },
+    [compact, docs],
   )
 }
-function useChatConfig() {
+function useCompactConfig() {
   const records = useExtensions()
-  const conversation = useStore((state) =>
-    state.conversations.find((summary) => summary.id === state.view?.conversation.id),
+  const id = useConversation((conversation) => conversation.id)
+  const conversation = useStore((state) => state.conversations.find((summary) => summary.id === id))
+  const compact = useMemo(
+    () => compactTools(records, conversation, reportCompact),
+    [records, conversation],
   )
-  const chat = useMemo(() => chatTools(records, conversation, reportChat), [records, conversation])
-  const kinds = chat?.docs.join(',') ?? ''
+  const kinds = compact?.docs.join(',') ?? ''
   useEffect(() => {
     const releases = kinds ? kinds.split(',').map((kind) => store.watchDocOf(1, kind)) : []
     return () => releases.forEach((release) => release())
   }, [kinds])
   const docs = useStore((state) => (kinds ? state.docsOf[1] : undefined)) ?? noDocs
-  return { chat, docs }
+  return { compact, docs }
 }
 const introFailures = new Set<string>()
 function reportIntro(extension: string, error: unknown) {
@@ -328,9 +349,8 @@ function reportIntro(extension: string, error: unknown) {
 /** The shown conversation's `intro` contribution, if one matches. */
 export function useIntro() {
   const records = useExtensions()
-  const conversation = useStore((state) =>
-    state.conversations.find((summary) => summary.id === state.view?.conversation.id),
-  )
+  const id = useConversation((conversation) => conversation.id)
+  const conversation = useStore((state) => state.conversations.find((summary) => summary.id === id))
   return useMemo(() => introOf(records, conversation, reportIntro), [records, conversation])
 }
 /** Document renderers by kind (`documents` contributions); the Documents tab shows the rest as JSON. */
@@ -436,14 +456,16 @@ export type UseActionOptions = { enabled?: boolean; onError?: (error: ActionErro
 /**
  * Call the server action `ref` names and keep its result: on mount and whenever the action or `args` (compared as
  * JSON) change, unless `enabled` is false. A newer call, new args, or an unmount abort the call in flight, also one
- * `refetch` started; its late result is ignored. A failure shows as a notice unless you pass `onError`.
+ * `refetch` started; its late result is ignored. Calls act on the nearest conversation scope, or the shown
+ * conversation outside one. A failure shows as a notice unless you pass `onError`.
  */
 export function useAction<Args, T>(
   ref: ActionRef<Args, T>,
   ...[args, options = {}]: ActionArgs<Args, UseActionOptions>
 ): ActionState<T> {
   const { extension, name } = ref
-  const key = JSON.stringify([extension, name, args ?? null])
+  const conversationId = useContext(ConversationIdContext)
+  const key = JSON.stringify([extension, name, args ?? null, conversationId ?? null])
   const [state, setState] = useState<{
     key: string
     data?: T
@@ -466,7 +488,7 @@ export function useAction<Args, T>(
       // Rebuilt from its strings, so a ref made during render does not refetch on every render.
       const data = await api.action(
         actionRef<Args, T>(extension, name),
-        ...([latest.current.args, { signal: controller.signal }] as ActionArgs<
+        ...([latest.current.args, { signal: controller.signal, conversationId }] as ActionArgs<
           Args,
           ActionOptions
         >),
@@ -489,7 +511,7 @@ export function useAction<Args, T>(
       return undefined
     }
     // `key` stands for args too, which are read through `latest`.
-  }, [key, extension, name])
+  }, [key, extension, name, conversationId])
   const enabled = options.enabled !== false
   useEffect(() => {
     // oxlint-disable-next-line typescript/no-floating-promises -- useAction reports failures and resolves undefined rather than rejecting.

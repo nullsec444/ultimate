@@ -2,17 +2,19 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
-import type { ConversationId } from '@earendil-works/pi-durable'
+import type { Conversation, ConversationId } from '@earendil-works/pi-durable'
 import { afterAll, expect, it } from 'vitest'
 import { attach, fauxServer, post, prepareFauxServer, temp, until } from './helpers.ts'
 import type { ConversationSummary } from '../shared/protocol.ts'
 import { context } from '../server/harness.ts'
 import { Metadata } from '../server/metadata.ts'
-import { actions as conversationActions } from '../extensions/conversations/server.ts'
+import { actions as conversationActions, concludedIn } from '../extensions/conversations/server.ts'
+import { UiState } from '../server/ui-state.ts'
 import type { ExtensionHost } from '../server/extensions.ts'
 import { actionExec } from '../server/actions.ts'
 import { currentAnswer, exchangeUser } from '../extensions/conversations/summary.ts'
 import { Overview } from '../extensions/conversations/overview.ts'
+import { Branch } from '../extensions/lineage/api.ts'
 
 type Server = Awaited<ReturnType<typeof fauxServer>>
 const servers: Server[] = []
@@ -73,11 +75,28 @@ async function launch() {
       post(server, `/api/extensions/conversations/actions/${name}`, { args }),
   }
 }
+it.concurrent('reads concluded IDs from the current transaction without exposing mutable document state', async () => {
+  const { server, create } = await launch()
+  const id = await create()
+  await server.harness.commit(async (tx) => {
+    expect(await concludedIn(tx)).toEqual(new Set())
+    const ui = await tx.doc(UiState, ROOT_CONVERSATION_ID)
+    ui['ext.conversations.concluded'] = [id]
+    const ids = await concludedIn(tx)
+    expect(ids).toEqual(new Set([id]))
+    ids.clear()
+    expect(await concludedIn(tx)).toEqual(new Set([id]))
+    ui['ext.conversations.concluded'] = 'invalid'
+    expect(await concludedIn(tx)).toEqual(new Set())
+    ui['ext.conversations.concluded'] = []
+  }, context)
+})
+
 it.concurrent('tells each top-level conversation about the others in a fixed text', async () => {
   const { server, home, summary, create, message, render } = await launch()
   const root = ROOT_CONVERSATION_ID
   const fixed = await render('conversations', root)
-  expect(fixed).toMatch(new RegExp(`^You are conversation #${root}\\. `))
+  expect(fixed).toMatch(/^Other conversations in this project/)
   expect(fixed).toContain('`ultimate.conversations()`')
 
   // An owned child (a subagent) gets no section.
@@ -88,6 +107,13 @@ it.concurrent('tells each top-level conversation about the others in a fixed tex
   expect(child.parentConversationId).toBe(root)
   expect(child.branchOf).toBeUndefined()
   expect(await render('conversations', child.id as ConversationId)).toBeUndefined()
+  const childContext = await (await server.harness.conversation(
+    child.id as ConversationId,
+    context,
+  ))!.context(context)
+  const childNotes = childContext.entries.filter((entry) => entry.kind === 'conversations.identity')
+  expect(childNotes).toHaveLength(1)
+  expect(childNotes[0].model?.[0]).toMatchObject({ content: `You are conversation #${child.id}.` })
 
   // Other conversations starting, working elsewhere or concluding never change the text.
   const other = await create()
@@ -98,9 +124,7 @@ it.concurrent('tells each top-level conversation about the others in a fixed tex
     args: { ids: [other] },
   })
   expect(await render('conversations', root)).toBe(fixed)
-  expect(await render('conversations', elsewhere)).toBe(
-    fixed!.replace(`#${root}.`, `#${elsewhere}.`),
-  )
+  expect(await render('conversations', elsewhere)).toBe(fixed)
 
   // An ownerless fork is top-level, but its inherited history is tracked separately.
   const view = await server.root.viewState(context)
@@ -125,7 +149,7 @@ it.concurrent('tells each top-level conversation about the others in a fixed tex
   } finally {
     await stream.close()
   }
-  expect(await render('conversations', fork.id)).toContain(`You are conversation #${fork.id}.`)
+  expect(await render('conversations', fork.id)).toBe(fixed)
   await until(async () => {
     try {
       const manifest = JSON.parse(
@@ -138,6 +162,227 @@ it.concurrent('tells each top-level conversation about the others in a fixed tex
   })
   const manifest = JSON.parse(await readFile(join(server.host.home, 'conversations.json'), 'utf8'))
   expect(manifest.some((item: { id: number }) => item.id === child.id)).toBe(false)
+})
+
+it.concurrent('renders identical system prompt sections and tools for a conversation and its fork', async () => {
+  const { server, create } = await launch()
+  const id = await create({ title: 'Parent title' })
+  const at = await server.harness.commit(
+    (tx) =>
+      tx.appendEntry(id, {
+        kind: 'pi.user',
+        model: [{ role: 'user', content: 'Work', timestamp: 1 }],
+      }),
+    context,
+  )
+  const fork = await server.harness.commit(
+    (tx) => tx.forkConversation(id, at.id, { ownership: { kind: 'ownerless' } }),
+    context,
+  )
+  await server.harness.commit(async (tx) => {
+    ;(await tx.doc(Metadata, fork.id)).title = 'Different fork title'
+  }, context)
+  const render = async (conversationId: ConversationId) => {
+    const conversation = (await server.harness.conversation(conversationId, context))!
+    const agent = await conversation.agent(context)
+    const sections: Record<string, string> = {}
+    for (const section of agent.sections) {
+      const value = await section.render(
+        { conversationId, agent, env: undefined, shown: {}, read: server.harness },
+        context,
+      )
+      if (value !== undefined) sections[section.key] = value
+    }
+    return {
+      sections,
+      // Include the schemas and descriptions too: they are part of the provider's cached prefix.
+      tools: agent.tools.map(({ name, description, parameters }) => ({
+        name,
+        description,
+        parameters,
+      })),
+    }
+  }
+  const parent = await render(id)
+  expect(parent.sections.conversations).toBeDefined()
+  expect(parent.sections.identity).toBeDefined()
+  expect(parent.tools.length).toBeGreaterThan(0)
+  expect(JSON.stringify(await render(fork.id))).toBe(JSON.stringify(parent))
+
+  // Audit the existing document exception: lineage.branch resets on raw forks.
+  await server.harness.commit(async (tx) => {
+    ;(await tx.doc(Branch, id)).branch = { from: 1, at: at.id, intent: 'Branch work' }
+  }, context)
+  const branchFork = await server.harness.commit(
+    (tx) => tx.forkConversation(id, at.id, { ownership: { kind: 'ownerless' } }),
+    context,
+  )
+  const branchParent = await render(id)
+  const forked = await render(branchFork.id)
+  expect(
+    Object.keys(branchParent.sections).filter(
+      (key) => branchParent.sections[key] !== forked.sections[key],
+    ),
+  ).toEqual(['lineage'])
+  expect(branchParent.sections.lineage).toContain('Branched from #1')
+  expect(forked.sections.lineage).not.toContain('Branched from')
+  // When the fork has the same branch facts, its entire prefix is identical too.
+  await server.harness.commit(async (tx) => {
+    ;(await tx.doc(Branch, branchFork.id)).branch = { from: 1, at: at.id, intent: 'Branch work' }
+  }, context)
+  expect(JSON.stringify(await render(branchFork.id))).toBe(JSON.stringify(branchParent))
+})
+
+const submit = async (target: Conversation, text: string) =>
+  (await target.submit({ type: 'input', content: text }, context)).wait(context)
+const notes = async (target: Conversation) =>
+  (await target.context(context)).entries.filter((entry) => entry.kind === 'conversations.identity')
+
+it.concurrent('identifies first inputs and inputs after compaction, not other turns, durably across forks and reopening', async () => {
+  const { server, create } = await launch()
+  const id = await create()
+  const conversation = (await server.harness.conversation(id, context))!
+  server.host.faux!.setResponses(Array.from({ length: 12 }, () => fauxAssistantMessage('Answer')))
+  await submit(conversation, 'First')
+  const first = await notes(conversation)
+  expect(first).toHaveLength(1)
+  expect(first[0].model?.[0]).toMatchObject({
+    role: 'user',
+    content: `You are conversation #${id}.`,
+  })
+  const entries = (await conversation.context(context)).entries
+  const noteIndex = entries.findIndex((entry) => entry.id === first[0].id)
+  expect(noteIndex).toBeGreaterThanOrEqual(0)
+  expect(noteIndex).toBeLessThan(entries.findIndex((entry) => entry.input))
+  await submit(conversation, 'Second')
+  expect(await notes(conversation)).toHaveLength(1)
+
+  const at = (await conversation.context(context)).entries.at(-1)!.id
+  const fork = await conversation.fork(at, { ownership: { kind: 'ownerless' } }, context)
+  await submit(fork, 'Fork first')
+  expect((await notes(fork)).at(-1)?.model?.[0]).toMatchObject({
+    content: `You are conversation #${fork.id}.`,
+  })
+  await submit(fork, 'Fork second')
+  expect(await notes(fork)).toHaveLength(2) // one inherited, one own
+
+  // Enough history for Pi to summarize rather than skip a short context.
+  await server.harness.commit(async (tx) => {
+    for (let n = 0; n < 8; n++)
+      await tx.appendEntry(id, {
+        kind: 'pi.user',
+        model: [{ role: 'user', content: `Part ${n} ${'word '.repeat(4000)}`, timestamp: n }],
+      })
+  }, context)
+  await server.harness.waitForTask(await conversation.compact(undefined, context), context)
+  const marker = await server.harness.commit((tx) => tx.latestHeadMarker(id), context)
+  expect(marker?.kind).toBe('pi.compaction')
+  await submit(conversation, 'After compaction')
+  expect((await notes(conversation)).at(-1)!.id).toBeGreaterThan(marker!.id)
+  const count = (await notes(conversation)).length
+  await submit(conversation, 'After compaction second')
+  expect(await notes(conversation)).toHaveLength(count)
+
+  const options = {
+    ultimateRoot: server.host.ultimateRoot,
+    projectRoot: server.host.projectRoot,
+    userHome: server.host.userHome,
+    home: server.host.home,
+  }
+  await server.close()
+  servers.splice(servers.indexOf(server), 1)
+  const reopened = await fauxServer(options)
+  servers.push(reopened)
+  reopened.host.faux!.setResponses([fauxAssistantMessage('Reopened answer')])
+  const continued = (await reopened.harness.conversation(id, context))!
+  await submit(continued, 'After reopening')
+  expect(await notes(continued)).toHaveLength(count)
+  // A reset loses context too, and the same durable marker mechanism refreshes the identity once.
+  await continued.reset(undefined, context)
+  reopened.host.faux!.setResponses([
+    fauxAssistantMessage('Reset answer'),
+    fauxAssistantMessage('Next'),
+  ])
+  await submit(continued, 'After reset')
+  expect(await notes(continued)).toHaveLength(1)
+  await submit(continued, 'After reset second')
+  expect(await notes(continued)).toHaveLength(1)
+})
+
+it.each(['compaction', 'reset'] as const)(
+  'identifies the first request after a %s queued while busy',
+  async (kind) => {
+    const { server, create } = await launch()
+    const id = await create()
+    const conversation = (await server.harness.conversation(id, context))!
+    await submit(conversation, 'First')
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    server.host.faux!.setResponses([
+      async () => {
+        entered.resolve()
+        await release.promise
+        return fauxAssistantMessage('Busy answer')
+      },
+      (request) => {
+        expect(JSON.stringify(request.messages)).toContain(`You are conversation #${id}.`)
+        return fauxAssistantMessage('After boundary')
+      },
+    ])
+    const busy = await conversation.submit({ type: 'input', content: 'Busy' }, context)
+    await entered.promise
+    const write = await conversation.submit(
+      {
+        type: 'write',
+        entry: {
+          kind: kind === 'compaction' ? 'pi.compaction' : 'pi.reset',
+          head: 'self',
+          model: [{ role: 'user', content: 'New context without identity', timestamp: Date.now() }],
+        },
+      },
+      context,
+    )
+    const next = await conversation.submit({ type: 'input', content: 'Next' }, context)
+    release.resolve()
+    expect((await busy.wait(context)).status).toBe('done')
+    expect((await write.wait(context)).status).toBe('done')
+    expect((await next.wait(context)).status).toBe('done')
+    expect(await notes(conversation)).toHaveLength(0) // the request guard does not write history
+  },
+)
+
+it.concurrent('identifies the next model request after automatic overflow compaction mid-run', async () => {
+  const { server, create } = await launch()
+  const id = await create()
+  const conversation = (await server.harness.conversation(id, context))!
+  await submit(conversation, 'First')
+  await server.harness.commit(async (tx) => {
+    for (let n = 0; n < 8; n++)
+      await tx.appendEntry(id, {
+        kind: 'pi.user',
+        model: [{ role: 'user', content: `Part ${n} ${'word '.repeat(4000)}`, timestamp: n }],
+      })
+  }, context)
+  let resumed = false
+  server.host.faux!.setResponses([
+    fauxAssistantMessage('Too long', {
+      stopReason: 'error',
+      errorMessage: 'maximum context length exceeded',
+    }),
+    fauxAssistantMessage('Summary without identity'),
+    (request) => {
+      resumed = true
+      expect(JSON.stringify(request.messages)).toContain('Summary without identity')
+      expect(JSON.stringify(request.messages)).toContain(`You are conversation #${id}.`)
+      return fauxAssistantMessage('Resumed')
+    },
+  ])
+  expect((await submit(conversation, 'Continue')).status).toBe('done')
+  expect(resumed).toBe(true)
+  const marker = await server.harness.commit((tx) => tx.latestHeadMarker(id), context)
+  expect(marker?.kind).toBe('pi.compaction')
+  expect(marker?.data).toMatchObject({ reason: 'overflow' })
+  expect(await notes(conversation)).toHaveLength(0) // the request guard does not write history
 })
 
 it.concurrent('renames top-level conversations', async () => {

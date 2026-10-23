@@ -6,13 +6,13 @@ export { defineWebExtension, definePoint, ParkedRuns, provide, RunStart } from '
 export { events, useEvent } from './events.ts'
 export { resumed } from './resume.ts'
 export type {
-  ChatCallTest,
-  ChatContribution,
-  ChatQuietTest,
-  ChatRow,
-  ChatSummaryProps,
+  CompactCallTest,
+  CompactContribution,
+  CompactQuietTest,
+  CompactRow,
+  CompactSummaryProps,
   IntroContribution,
-  ChatDocs,
+  CompactDocs,
   CommandContribution,
   ComposerRenderer,
   Contribution,
@@ -45,16 +45,20 @@ export {
 } from '../app/primitives.tsx'
 /** Isolates another extension's component you render, such as a document renderer: it throws into an error card. */
 export { ExtensionBoundary } from '../app/boundary.tsx'
-/** A card that folds to one quiet line in a chat, and whether one is open; the reader's choice survives reloads. */
+/** A card that folds to one quiet line in compact mode, and whether one is open; the reader's choice survives reloads. */
 export { Fold, useFold } from '../app/fold.tsx'
 /** The entries a go-back set aside, which the model's context leaves out. */
-export { setAsideIds } from '../app/chat.ts'
+export { setAsideIds } from '../app/compact.ts'
 /** A message's footer as the transcript shows it: details such as usage, time, copy, go back and a reference link. */
 export { MessageActions } from '../app/message-actions.tsx'
 /** A turn of the user's as the transcript shows a typed one; `text` gives the words a delivered message carries. */
 export { UserText, UserView } from '../app/user-turn.tsx'
 /** Renders with the value another extension provides for your point; see `definePoint`. */
 export { Provided } from '../app/boundary.tsx'
+export { ConversationScope } from './conversation-scope.tsx'
+/** Sends what the composer inside it submits somewhere else, such as a new side chat; see `composer` renderers. */
+export { ComposerRedirect } from '../app/composer.tsx'
+export type { ComposerTarget } from '../app/composer.tsx'
 export { api } from './client.ts'
 export { ActionError } from './api.ts'
 export type { ActionOptions, Api } from './api.ts'
@@ -67,7 +71,7 @@ export {
   getState,
   refreshModels,
   useAction,
-  useChat,
+  useCompact,
   useCommands,
   useConnection,
   useConversation,

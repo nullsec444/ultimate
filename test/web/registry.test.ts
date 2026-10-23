@@ -9,21 +9,27 @@ import {
   panelItems,
   entryRenderers,
   resolveSurface,
+  shownPanels,
   slotItems,
   surfaceItems,
   toolRenderers,
   linkRenderers,
   messageItems,
   composerRenderers,
-  chatTools,
+  compactTools,
 } from '../../web/src/sdk/registry.ts'
-import type { ExtensionLoader, SurfaceItem } from '../../web/src/sdk/registry.ts'
+import type { ExtensionLoader, PanelItem, SurfaceItem } from '../../web/src/sdk/registry.ts'
 import type { WebExtension } from '../../web/src/sdk/types.ts'
 
 const path = (name: string) => `../../extensions/${name}/web.tsx`
+/** The shown panel's id and the tab row's ids. */
+const ids = ({ active, tabs }: ReturnType<typeof shownPanels>) => [
+  active?.id,
+  tabs.map((item) => item.id),
+]
 const component = (label: string) => Object.assign(() => null, { displayName: label })
 const module = (extension: WebExtension) => ({ default: extension })
-/** A chat row of an entry of `kind`. */
+/** A compact row of an entry of `kind`. */
 const row = (kind: string) => ({ entry: { kind } as EntryRecord, calls: [] })
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -324,15 +330,16 @@ describe('web extension registry', () => {
     }
   })
 
-  it('makes a conversation a chat when a facet says so, combining their visible tools', async () => {
+  it('makes a conversation compact when a facet says so, combining their visible tools', async () => {
     const registry = createRegistry()
     await registry.setLoaders({
       [path('a')]: async () =>
-        module({ chat: { when: (c) => c.label === 'agent', tools: ['message', 'branch'] } }),
-      [path('b')]: async () => module({ chat: { when: (c) => c.id === 7, tools: ['workspace'] } }),
+        module({ compact: { when: (c) => c.label === 'agent', tools: ['message', 'branch'] } }),
+      [path('b')]: async () =>
+        module({ compact: { when: (c) => c.id === 7, tools: ['workspace'] } }),
       [path('c')]: async () =>
         module({
-          chat: {
+          compact: {
             when: () => {
               throw new Error('broken')
             },
@@ -342,22 +349,22 @@ describe('web extension registry', () => {
     const report = vi.fn<(extension: string, error: unknown) => void>()
     const records = registry.getSnapshot()
     const kept = (conversation: { id: number; label?: string }) => {
-      const { keeps } = chatTools(records, { ...conversation, busy: false }, report)!
+      const { keeps } = compactTools(records, { ...conversation, busy: false }, report)!
       return ['message', 'branch', 'workspace', 'bash'].filter((name) =>
         keeps({ type: 'toolCall', id: name, name, arguments: {} }, {}),
       )
     }
     expect(kept({ id: 7, label: 'agent' })).toEqual(['message', 'branch', 'workspace'])
     expect(kept({ id: 3, label: 'agent' })).toEqual(['message', 'branch'])
-    expect(chatTools(records, { id: 3, busy: false }, report)).toBeUndefined()
-    expect(chatTools(records, undefined, report)).toBeUndefined()
+    expect(compactTools(records, { id: 3, busy: false }, report)).toBeUndefined()
+    expect(compactTools(records, undefined, report)).toBeUndefined()
     expect(report).toHaveBeenCalledWith('c', new Error('broken'))
-    const shape = 'chat must be a { when, tools?, docs?, quiet?, summary? } object'
-    registry.replace('b', { default: { chat: { tools: ['workspace'] } } })
+    const shape = 'compact must be a { when, tools?, docs?, quiet?, summary? } object'
+    registry.replace('b', { default: { compact: { tools: ['workspace'] } } })
     expect(registry.getSnapshot()[1]?.error).toBe(shape)
-    registry.replace('b', { default: { chat: { when: () => true, docs: [1] } } })
+    registry.replace('b', { default: { compact: { when: () => true, docs: [1] } } })
     expect(registry.getSnapshot()[1]?.error).toBe(shape)
-    registry.replace('b', { default: { chat: { when: () => true, quiet: true } } })
+    registry.replace('b', { default: { compact: { when: () => true, quiet: true } } })
     expect(registry.getSnapshot()[1]?.error).toBe(shape)
   })
 
@@ -367,11 +374,11 @@ describe('web extension registry', () => {
     await registry.setLoaders({
       [path('a')]: async () =>
         module({
-          chat: { when: () => true, quiet: ({ entry }) => entry.kind === 'note' || 'hidden' },
+          compact: { when: () => true, quiet: ({ entry }) => entry.kind === 'note' || 'hidden' },
         }),
       [path('b')]: async () =>
         module({
-          chat: {
+          compact: {
             when: () => true,
             quiet: ({ entry }) => {
               if (entry.kind === 'boom') throw new Error('broken')
@@ -382,7 +389,7 @@ describe('web extension registry', () => {
         }),
     })
     const report = vi.fn<(extension: string, error: unknown) => void>()
-    const { quiet, summary } = chatTools(registry.getSnapshot(), { id: 1, busy: false }, report)!
+    const { quiet, summary } = compactTools(registry.getSnapshot(), { id: 1, busy: false }, report)!
     expect(quiet(row('note'), {})).toBe(true)
     expect(quiet(row('reply'), {})).toBe(true)
     expect(quiet(row('user'), {})).toBe('hidden')
@@ -396,7 +403,7 @@ describe('web extension registry', () => {
     await registry.setLoaders({
       [path('a')]: async () =>
         module({
-          chat: {
+          compact: {
             when: () => true,
             tools: [
               'message',
@@ -409,7 +416,7 @@ describe('web extension registry', () => {
         }),
       [path('b')]: async () =>
         module({
-          chat: {
+          compact: {
             when: () => true,
             tools: [
               () => {
@@ -421,7 +428,7 @@ describe('web extension registry', () => {
         }),
     })
     const report = vi.fn<(extension: string, error: unknown) => void>()
-    const { keeps, docs } = chatTools(registry.getSnapshot(), { id: 1, busy: false }, report)!
+    const { keeps, docs } = compactTools(registry.getSnapshot(), { id: 1, busy: false }, report)!
     expect(docs).toEqual(['board', 'log'])
     const script = { type: 'toolCall' as const, id: 's', name: 'codemode', arguments: {} }
     expect(keeps(script, {})).toBe(false)
@@ -578,5 +585,35 @@ describe('web extension registry', () => {
     expect(report).toHaveBeenCalledOnce()
     expect(report.mock.calls[0][0]).toMatchObject({ id: 'broken.cmd', extension: 'broken' })
     expect(String(report.mock.calls[0][1])).toContain('predicate failed')
+  })
+
+  it('keeps a tabless panel out of the tab row until it is shown, and never shows it by default', () => {
+    const panel = (id: string, tab?: boolean): PanelItem => ({
+      id,
+      title: id,
+      component: component(id),
+      extension: id,
+      version: 1,
+      ...(tab === undefined ? {} : { tab }),
+    })
+    const panels = [panel('secrets', false), panel('todos'), panel('info', true)]
+    expect(ids(shownPanels(panels, null))).toEqual(['todos', ['todos', 'info']])
+    expect(ids(shownPanels(panels, 'gone'))).toEqual(['todos', ['todos', 'info']])
+    expect(ids(shownPanels(panels, 'info'))).toEqual(['info', ['todos', 'info']])
+    expect(ids(shownPanels(panels, 'secrets'))).toEqual(['secrets', ['secrets', 'todos', 'info']])
+    // Only tabless panels: none shows until one is opened.
+    expect(ids(shownPanels([panels[0]], null))).toEqual([undefined, []])
+    expect(ids(shownPanels([panels[0]], 'secrets'))).toEqual(['secrets', ['secrets']])
+  })
+
+  it('rejects a panel whose tab is not a boolean', async () => {
+    const registry = createRegistry()
+    await registry.setLoaders({
+      [path('odd')]: async () =>
+        module({
+          panels: [{ id: 'x', title: 'X', component: component('x'), tab: 'no' as never }],
+        }),
+    })
+    expect(registry.getSnapshot()[0].error).toMatch(/^panels must be .*tab\?/)
   })
 })

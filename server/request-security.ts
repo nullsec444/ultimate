@@ -120,7 +120,11 @@ export function bridgeAuthority(authority: string | undefined) {
 export function bridgeOrigin(origin: string) {
   try {
     const url = new URL(origin)
-    return ['http:', 'https:'].includes(url.protocol) && bridgeAuthority(url.host) && url.pathname === '/'
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      bridgeAuthority(url.host) &&
+      url.pathname === '/'
+    )
   } catch {
     return false
   }

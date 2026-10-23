@@ -1,5 +1,5 @@
 import { PencilIcon } from 'lucide-react'
-import { formatTime, Provided, useChat } from '@/sdk'
+import { formatTime, Provided, useCompact } from '@/sdk'
 import type { EntryRecord } from '@/sdk'
 import type {
   IntentSummary,
@@ -31,9 +31,9 @@ function summaryText(entry: EntryRecord) {
 }
 
 export function SummaryAction({ entry }: { entry: EntryRecord }) {
-  const chat = useChat()
-  // A chat's agent and a root get no summaries; older lines from before would only interrupt them.
-  if (chat) return null
+  const compact = useCompact()
+  // An agent in compact mode and a root get no summaries; older lines would only interrupt them.
+  if (compact) return null
   return (
     <Provided input={entry.conversationId} point={Unsummarized}>
       {(unsummarized) => (unsummarized ? null : <SummaryLine entry={entry} />)}

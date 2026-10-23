@@ -26,7 +26,7 @@ import {
 } from '@/sdk'
 import type { AuthEvent, AuthPrompt } from '@/sdk'
 import { store } from '@/sdk/client'
-import { authLabel, dialogs, openPicker, useLoginProvider } from './state.tsx'
+import { authLabel, dialogs, reopenPicker, useLoginProvider } from './state.tsx'
 import type { ProviderInfo } from './state.tsx'
 import { AnswerAction, CancelAction, LoginAction, LoginDoc, LogoutAction } from './refs.ts'
 
@@ -386,7 +386,7 @@ function FlowView({
               className="h-7 text-[12px]"
               onClick={() => {
                 onDone()
-                openPicker(actions)
+                reopenPicker(actions)
               }}
               size="sm"
               variant="outline"

@@ -1,14 +1,14 @@
 import { expect, it } from 'vitest'
 import { extensionOptions } from '../../extensions/onboarding/choices.tsx'
 
-const core = ['subagents', 'board', 'lineage', 'onboarding', 'documents']
+const core = ['subagents', 'messages', 'lineage', 'onboarding', 'documents']
 
 it('keeps every core-tier extension checked and locked, even over saved or pending disables', () => {
   const changed = Object.fromEntries(core.map((name) => [name, false]))
   const options = extensionOptions([...core, 'parallel'], { ...changed, info: false }, core)
   expect(options.filter((entry) => entry.required).map((entry) => entry.name)).toEqual([
     'subagents',
-    'board',
+    'messages',
     'lineage',
     'onboarding',
     'documents',

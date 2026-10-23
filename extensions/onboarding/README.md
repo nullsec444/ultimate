@@ -19,7 +19,7 @@ and preserves the instructions. Request id `onboarding:<root>` ensures one input
 so Start here can show **@ultimate is setting up this project · open** across reloads.
 
 @ultimate greets, shows only applicable setup cards one at a time and waits for each choice, then reads the project
-with the user able to steer. It writes the root's first tally through `seed_tally`, suggests at most three useful
+with the user able to steer. It writes the root's first memories with `remember` (the user's instructions verbatim among them), suggests at most three useful
 project-specific agents, extensions or settings, and builds only what the user chooses. The first feature becomes a
 coordinator through `branch`. Roots stay read-only while @ultimate handles setup.
 Under faux the same flow is scripted without model tokens (see `faux/README.md`).
@@ -33,7 +33,7 @@ the agent should wait for an `onboarding.choice` input before continuing.
 The tool renderer shows a quiet, transcript-width card:
 
 - **Extensions:** recommended extensions as checkboxes, initially checked unless the user's settings disable them.
-  Core-tier extensions (`ExtensionInfo.core`, such as `subagents`, `board`, `lineage`, `onboarding` and `documents`)
+  Core-tier extensions (`ExtensionInfo.core`, such as `subagents`, `messages`, `lineage`, `onboarding` and `documents`)
   stay checked and disabled with "core, always on": the server keeps them enabled whatever the settings say. Dependencies are checked with their extension (`automations` needs
   `subagents`, `parallel` needs `secrets`).
   Continue applies user-global choices with `applyFirstRun`. Both checked and unchecked choices are saved explicitly;

@@ -228,7 +228,7 @@ export default {
           Literal(node: Node) {
             if (
               typeof node.value === 'string' &&
-              (/^(side chat|Branch from here|Clear context|New conversation)$/i.test(node.value) ||
+              (/^(Branch from here|Clear context|New conversation)$/i.test(node.value) ||
                 (node.value === 'board' &&
                   (node.parent?.key?.name ?? node.parent?.key?.value) === 'surface'))
             )
@@ -595,8 +595,9 @@ export default {
               callee.name === 'defineEvent' &&
               !(
                 typeof name === 'string' &&
-                name.startsWith(`${own}.`) &&
-                name.length > own.length + 1
+                ((name.startsWith(`${own}.`) && name.length > own.length + 1) ||
+                  (own === 'messages' &&
+                    ['board.asked', 'board.sent', 'board.triaged'].includes(name)))
               )
             )
               context.report({

@@ -1,19 +1,26 @@
-import { CheckIcon, ChevronRightIcon, MessageCircleQuestionIcon, PlusIcon } from 'lucide-react'
+import {
+  ArrowUpRightIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  MessageCircleQuestionIcon,
+  PlusIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { api, cn, errorMessage, useDocOf, useNow, useUltimate } from '@/sdk'
-import { accentOf, Address, BoardDoc, emptyBoard, relativeTime } from '../board/ui.tsx'
+import { api, cn, errorMessage, events, useDocOf, useNow, useUltimate } from '@/sdk'
+import { accentOf, Address, MessagesDoc, emptyMessages, relativeTime } from '../messages/ui.tsx'
 import { QuestionsDoc, waiting } from '../questions/ui.tsx'
 import { AddAction, DoneAction, ReopenAction, TodosDoc } from './refs.ts'
 import type { Todo } from './refs.ts'
 
-/** The fields of a waiting Board message a question row shows. */
+/** The fields of a waiting message a question row shows. */
 type Asked = {
   id: number
   from: number | 'user' | 'remote'
   text: string
   at: number
+  call?: string
   remote?: { project: string; machine: string }
 }
 
@@ -23,12 +30,13 @@ const owners: { id: Todo['owner']; label: string }[] = [
 ]
 
 /**
- * The project's to-dos: what waits on you (your open questions, read live from Board, then your own to-dos), what
- * @ultimate is still on, a field to add one for either of you, and the done ones folded away.
+ * The project's to-dos: what waits on you (questions asked of you, read live from Messages, then your own to-dos), what
+ * @ultimate is still on, a field to add one for either of you, and the done ones folded away. A question is answered
+ * where it was asked: its row opens that conversation at the message, whose card has the choices and Dismiss.
  */
 export function Todos() {
   const items = useDocOf(1, TodosDoc)?.items ?? []
-  const questions = waiting((useDocOf(1, BoardDoc) ?? emptyBoard).messages)
+  const questions = waiting((useDocOf(1, MessagesDoc) ?? emptyMessages).messages)
   const now = useNow(60_000)
   const [error, setError] = useState<string>()
   const open = items.filter((todo) => !todo.done)
@@ -55,7 +63,13 @@ export function Todos() {
       <div className="flex items-center gap-2 px-3 pb-2 font-mono text-[10.5px] tracking-wider text-muted-foreground uppercase">
         To-dos
         <span className="ml-auto tracking-normal normal-case text-muted-foreground/70">
-          {count ? `${count} open` : 'none open'}
+          {questions.length > 0 && (
+            <span className="text-amber-700 dark:text-amber-300">
+              {questions.length} {questions.length === 1 ? 'question' : 'questions'}
+              {open.length > 0 && ' · '}
+            </span>
+          )}
+          {open.length ? `${open.length} open` : questions.length ? '' : 'none open'}
         </span>
       </div>
       <AddTodo add={(text, owner) => run(api.action(AddAction, { text, owner }))} />
@@ -161,18 +175,29 @@ function TodoRow({ todo, now, toggle }: { todo: Todo; now: number; toggle: (todo
   )
 }
 
-/** One question waiting on you: who asks, its gist and age; a click opens it in Questions to answer. */
+/**
+ * One question waiting on you: its gist, who asks and how long ago. A click opens the asker's conversation at the
+ * message, where its answer card offers the choices, a reply and Dismiss.
+ */
 function QuestionRow({ message, now }: { message: Asked; now: number }) {
   const extracted = useDocOf(1, QuestionsDoc)?.asked[String(message.id)] ?? []
-  const { openPanel } = useUltimate()
+  const { showSurface, switchConversation } = useUltimate()
   const accent = accentOf(message.from)
   const more = extracted.length > 1 ? ` +${extracted.length - 1}` : ''
+  const from = typeof message.from === 'number' ? message.from : undefined
+  const open = () => {
+    if (from === undefined) return
+    if (message.call) events.emit('messages:open', { conversation: from, call: message.call })
+    showSurface('agent')
+    switchConversation(from)
+  }
   return (
     <li data-todo-question={message.id}>
       <button
-        className="flex w-full cursor-pointer items-start gap-2.5 rounded px-2 py-1.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        onClick={() => openPanel('questions')}
-        title="Answer in Questions"
+        className="group/question flex w-full cursor-pointer items-start gap-2.5 rounded px-2 py-1.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
+        disabled={from === undefined}
+        onClick={open}
+        title={from === undefined ? undefined : `Answer in #${from}`}
         type="button"
       >
         <MessageCircleQuestionIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
@@ -183,10 +208,16 @@ function QuestionRow({ message, now }: { message: Asked; now: number }) {
               <span className="ml-1 font-mono text-[11px] text-muted-foreground">{more}</span>
             )}
           </span>
-          <span
-            className={cn('mt-0.5 flex min-w-0 font-mono text-[11px] font-semibold', accent.name)}
-          >
-            <Address id={message.from} remote={message.remote} />
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
+            <span className={cn('flex min-w-0 font-semibold', accent.name)}>
+              <Address id={message.from} remote={message.remote} />
+            </span>
+            {from !== undefined && (
+              <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground/70 transition-colors group-hover/question:text-foreground">
+                answer
+                <ArrowUpRightIcon className="size-3" />
+              </span>
+            )}
           </span>
         </span>
         <time

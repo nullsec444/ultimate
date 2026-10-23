@@ -1,7 +1,7 @@
 import type { AgentState, InboxItem } from '@earendil-works/pi-durable'
 import { cn } from 'cn'
 import { CornerDownRightIcon, ListPlusIcon, LoaderCircleIcon, XIcon } from 'lucide-react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react'
 import { ImagePreviews, useImagePaste } from '@/components/image-paste'
 import type { KeyboardEvent, ReactNode } from 'react'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ai/prompt-input'
 import { Kbd } from '@/components/ui/kbd'
 import { api } from '../sdk/client.ts'
+import { ConversationIdContext } from '../sdk/conversation-scope.tsx'
 import { errorMessage } from '../sdk/format.ts'
 import { events } from '../sdk/events.ts'
 import {
@@ -115,6 +116,17 @@ function Inbox({ items }: { items: readonly InboxItem[] }) {
   )
 }
 
+/** Where a composer sends instead of its conversation, such as a new side chat: `send` gets the text; images stay. */
+export interface ComposerTarget {
+  placeholder: string
+  send: (text: string) => Promise<unknown>
+}
+const ComposerTargetContext = createContext<ComposerTarget | undefined>(undefined)
+/** Redirects the composer inside it to `to` while it is set; a composer renderer wraps `core` in it. */
+export function ComposerRedirect({ to, children }: { to?: ComposerTarget; children: ReactNode }) {
+  return <ComposerTargetContext value={to}>{children}</ComposerTargetContext>
+}
+
 export function Composer({ dock }: { dock?: boolean }) {
   const { id, entries } = useConversation()
   const renderers = composerRenderers(useExtensions())
@@ -189,6 +201,8 @@ function clearDraft(
 
 function ConversationComposer({ dock }: { dock?: boolean }) {
   const { id, agent, busy, loading, inbox } = useConversation()
+  const scoped = useContext(ConversationIdContext)
+  const target = useContext(ComposerTargetContext)
   const intro = useIntro()
   const draft = getDraft(id)
   const { text, images, error, sending } = useSyncExternalStore(draft.subscribe, draft.get)
@@ -220,11 +234,18 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
     if (loading || empty || blocked || draft.get().sending || pending.current || id === undefined)
       return
     const submitted = draft.get()
+    if (target && images.length) {
+      setError('Images stay here: remove them to send elsewhere')
+      return
+    }
     draft.set({ sending: true, error: undefined })
-    // Sending means following the run from here, wherever the reader had scrolled to.
-    events.emit('ultimate:sent', { conversationId: id })
     try {
-      await api.submit(text.trim(), busy ? (whenBusy ?? 'steer') : undefined, id, images)
+      if (target) await target.send(text.trim())
+      else {
+        // Sending means following the run from here, wherever the reader had scrolled to.
+        events.emit('ultimate:sent', { conversationId: id })
+        await api.submit(text.trim(), busy ? (whenBusy ?? 'steer') : undefined, id, images)
+      }
       clearDraft(draft, submitted)
       if (draft.get().images === submitted.images) draft.set({ images: [] })
     } catch (failure) {
@@ -245,7 +266,11 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
   }
 
   return (
-    <div data-composer-target="conversation" className={cn(column(dock), 'pb-2')}>
+    // Only the shown conversation's composer takes typing shortcuts (Escape, Shift+Tab): they act on that conversation.
+    <div
+      data-composer-target={scoped === undefined ? 'conversation' : 'scope'}
+      className={cn(column(dock), 'pb-2')}
+    >
       <Inbox items={inbox} />
       <PromptInput
         onSubmit={(event) => {
@@ -263,13 +288,14 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
           autoFocus={!touchKeyboard()}
           readOnly={loading || sending}
           onPaste={(event) => void paste(event)}
-          id="composer-input"
+          id={scoped === undefined ? 'composer-input' : `composer-input-${scoped}`}
           onChange={(event) => update(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={
-            busy
+            target?.placeholder ??
+            (busy
               ? 'Steer the run, or queue a follow-up…'
-              : (intro?.placeholder ?? 'Ask Ultimate to change something…')
+              : (intro?.placeholder ?? 'Ask Ultimate to change something…'))
           }
           value={text}
         />
@@ -286,7 +312,7 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
             >
               {error ??
                 blocked ??
-                (busy ? (
+                (busy && !target ? (
                   <span className="pointer-coarse:hidden">
                     <Kbd>↵</Kbd> steer · <Kbd>{alt} ↵</Kbd> follow-up · <Kbd>esc</Kbd> stop
                   </span>
@@ -296,7 +322,7 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
               <PromptInputSubmit
                 mode="stop"
                 onClick={() =>
-                  void api.abort().catch((failure: Error) => setError(failure.message))
+                  void api.abort(id).catch((failure: Error) => setError(failure.message))
                 }
                 title="Stop (Esc)"
               />
@@ -305,7 +331,13 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
               <PromptInputSubmit
                 disabled={loading || empty || !!blocked || sending || reading}
                 aria-label={loading ? 'Loading conversation' : 'Send'}
-                title={loading ? 'Loading conversation' : busy ? 'Steer (Enter)' : 'Send (Enter)'}
+                title={
+                  loading
+                    ? 'Loading conversation'
+                    : busy && !target
+                      ? 'Steer (Enter)'
+                      : 'Send (Enter)'
+                }
                 className={loading ? 'bg-muted text-muted-foreground' : undefined}
               >
                 {loading ? (

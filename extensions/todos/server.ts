@@ -13,6 +13,7 @@ import {
 } from '@earendil-works/pi-durable'
 import type { ConversationId, Tx } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
+import { actingAs } from '../../lib/acting-as.ts'
 import { implementAction } from '../../lib/actions.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { Standing } from '../subagents/api.ts'
@@ -143,7 +144,7 @@ export const actions = {
 const standing = (tx: Tx, id: ConversationId) =>
   tx.doc(Standing, ROOT_CONVERSATION_ID).then((doc) => doc.ultimate === id)
 
-export default function todosExtension(_host: ExtensionHost) {
+export default function todosExtension(host: ExtensionHost) {
   return defineExtension({
     name: 'todos',
     hooks: [
@@ -170,9 +171,11 @@ export default function todosExtension(_host: ExtensionHost) {
         }),
         // Not replay-safe (the default): an interrupted add is never rerun, so it commits at most once.
         async execute(args, api, ctx) {
+          // A side chat keeps @ultimate's to-dos as main.
+          const caller = await actingAs(host, api.conversationId, ctx)
           const text = await api.commit(async (tx) => {
             // Deferred only hides it: a branch can still find it with tool_search, so the caller is checked here.
-            if (!(await standing(tx, api.conversationId)))
+            if (!(await standing(tx, caller)))
               throw new Error(
                 'Only @ultimate keeps the to-dos; ask @ultimate to add one (message, reply: false).',
               )

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { parseDecisions } from '../lib/decisions.ts'
-import { gist } from '../extensions/board/server.ts'
+import { gist } from '../extensions/messages/server.ts'
 import { answerText, decisionQuestions } from '../extensions/questions/server.ts'
 
-// #97078 board message 1326, the reported card that offered only a free-text field.
+// #97078 message 1326, the reported card that offered only a free-text field.
 const m1326 = `**Branch prompts in boxer's project context:** I read boxer's root (#1) from here.
 
 **My take:** you're right, they don't belong there in full.
@@ -13,7 +13,7 @@ Decisions (my picks: 1a 2a):
 1. **Branch starts in the context:** (a) one-line intent plus breadcrumb; (b) drop them, rely on abstracts; (c) leave as is.
 2. **Boxer's copied \`agents/ultimate.md\`:** (a) assess a way for projects to add tools to @ultimate without forking it; (b) leave it.`
 
-// #97078 board message 1335: a numbered findings list before the decisions block, picks on their own line.
+// #97078 message 1335: a numbered findings list before the decisions block, picks on their own line.
 const m1335 = `**The main cause is my message format, not the card.**
 1. **Stated picks read as decided.** The prompt says to leave out "anything already decided".
 2. **Extra questions:** a trailing "go" or "Build it?" turned into an extra question.

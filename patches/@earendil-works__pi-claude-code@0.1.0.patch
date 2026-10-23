@@ -1,5 +1,5 @@
 diff --git a/src/claude-cli.ts b/src/claude-cli.ts
-index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..316c8d91bc8e4cf0e38f1da9333c84203f09b24b 100644
+index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..c5e47effcec94e266ae31abe0842c2e9681449bc 100644
 --- a/src/claude-cli.ts
 +++ b/src/claude-cli.ts
 @@ -544,15 +544,23 @@ function setReplayCacheBreakpoints(messages: NativeRequestMessage[]): void {
@@ -33,7 +33,19 @@ index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..316c8d91bc8e4cf0e38f1da9333c8420
    }
    const final = messages.at(-1);
    if (final) setCacheBreakpoint(final);
-@@ -666,9 +674,11 @@ export function rewriteInitialRequest(
+@@ -642,6 +650,11 @@ export function rewriteInitialRequest(
+   };
+   let messages = payload.messages;
+   const first = messages?.[0];
++  // Replaying a history whose first message starts with "/", Claude Code sends
++  // that message as a bare string without its reminder blocks.
++  if (first?.role === "user" && typeof first.content === "string") {
++    first.content = [{ type: "text", text: first.content }];
++  }
+   if (first?.role !== "user" || !Array.isArray(first.content)) {
+     throw new Error("Claude Code request is missing its initial user message");
+   }
+@@ -666,9 +679,11 @@ export function rewriteInitialRequest(
    if (nativeSystemInjections) {
      messages = injectNativeSystemMessages(messages!, nativeSystemInjections);
      payload.messages = messages;
@@ -46,7 +58,7 @@ index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..316c8d91bc8e4cf0e38f1da9333c8420
  
    return Buffer.from(JSON.stringify(payload));
  }
-@@ -726,6 +736,20 @@ function launchPlan(input: RunClaudeInput): ClaudeLaunchPlan {
+@@ -726,6 +741,20 @@ function launchPlan(input: RunClaudeInput): ClaudeLaunchPlan {
    };
  }
  
@@ -67,7 +79,7 @@ index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..316c8d91bc8e4cf0e38f1da9333c8420
  class ClaudeProcess {
    busy = false;
    readonly createdAt = Date.now();
-@@ -976,11 +1000,7 @@ class ClaudeProcess {
+@@ -976,11 +1005,7 @@ class ClaudeProcess {
          message = assistants.at(-1);
        }
  
@@ -80,3 +92,16 @@ index 6c0595e212349b18f3d980cd2de5ea07e8b5ab65..316c8d91bc8e4cf0e38f1da9333c8420
  
        const nativeFailureHandled = this.relay.denied > 0 || message.stop_reason === "refusal";
        if (nativeError && !nativeFailureHandled) throw new Error(`Claude Code API error: ${nativeError}`);
+diff --git a/src/turn-relay.ts b/src/turn-relay.ts
+index 08ec86e5df1baac866a1cd97cea4dc94a523fbd7..b3aa4007e5154b2d9cd21e8d2ad8fbc622f919c8 100644
+--- a/src/turn-relay.ts
++++ b/src/turn-relay.ts
+@@ -323,7 +323,7 @@ export class TurnRelay {
+       if (this.status === 200) this.capture.finish();
+       response.end();
+     } catch (error) {
+-      this.failure = error instanceof Error ? error.name : "UnknownError";
++      this.failure = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+       if (!response.headersSent) response.writeHead(this.cancelled ? 499 : 502).end();
+       else response.destroy();
+     } finally {

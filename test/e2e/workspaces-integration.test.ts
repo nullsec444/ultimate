@@ -45,9 +45,8 @@ import { concludeIn, subject } from '../../extensions/conversations/server.ts'
 import { ConversationsApi } from '../../extensions/conversations/api.ts'
 import type { ConversationsService } from '../../extensions/conversations/api.ts'
 import { Summaries } from '../../extensions/conversations/summary.ts'
-import self from '../../extensions/self/server.ts'
-import board from '../../extensions/board/server.ts'
-import { Board } from '../../extensions/board/api.ts'
+import messagesExtension from '../../extensions/messages/server.ts'
+import { Messages } from '../../extensions/messages/api.ts'
 import promptExtension, { order as promptOrder } from '../../extensions/prompt/server.ts'
 import subagents from '../../extensions/subagents/server.ts'
 import { Subagents } from '../../extensions/subagents/api.ts'
@@ -90,7 +89,7 @@ const noIdea: Answer = () => fauxAssistantMessage('no idea')
 async function fixture(
   commands: string[] = [],
   existing?: Awaited<ReturnType<typeof repository>>,
-  boardEnabled = false,
+  messagesEnabled = false,
 ) {
   const paths = existing ?? (await repository())
   const prepared = await prepareHarness({
@@ -158,9 +157,8 @@ async function fixture(
     }),
   )
   const service = workspaces(host)
-  if (boardEnabled) prepared.registry.install(board(host))
+  if (messagesEnabled) prepared.registry.install(messagesExtension(host))
   prepared.registry.install(workspaceExtension(host))
-  prepared.registry.install(self(host))
   prepared.registry.install(subagents(host))
   prepared.registry.install(CodingTools)
   /** How the faux model answers the lander's failure prompt; the default says it found nothing. */
@@ -683,21 +681,6 @@ it.concurrent('discard refuses dirty, keeps the branch until reuse, and recreate
   expect((await f.service.get(id, context))!).toMatchObject({ state: 'ready', base: tip })
   await expect(access(join(f.projectRoot, 'change.txt'))).rejects.toThrow('ENOENT')
 })
-it.concurrent('isolated restart refuses before landing and accepts a clean running clone at the landed tip', async () => {
-  const f = await fixture()
-  const id = await f.create()
-  await f.service.ready(id, context)
-  expect(JSON.stringify(await f.call(id, 'restart'))).toContain('land your workspace into')
-  expect(f.restart).not.toHaveBeenCalled()
-  const workspace = (await f.service.get(id, context))!
-  await commit(workspace.path)
-  await f.service.land(id, context)
-  expect(JSON.stringify(await f.call(id, 'restart'))).toContain('RESTART_CALLED')
-  expect(f.restart).toHaveBeenCalledOnce()
-  await writeFile(join(f.projectRoot, 'dirty.txt'), 'dirty')
-  expect(JSON.stringify(await f.call(id, 'restart'))).toContain('land your workspace into')
-  expect(f.restart).toHaveBeenCalledOnce()
-})
 it.concurrent('starts a worker isolate, commits in the child and lands it through the parent tool', async () => {
   const f = await fixture()
   const result = await f.call(f.opened.root.id, 'subagent', {
@@ -1084,15 +1067,15 @@ it.concurrent('notes the root of the submitter’s tree and skips a conversation
   expect(await rootNotes(f)).toHaveLength(0)
 })
 
-const boardMessages = async (f: Awaited<ReturnType<typeof fixture>>) =>
-  (await f.opened.harness.snapshot(Board, ROOT_CONVERSATION_ID, context))?.messages ?? []
+const messageLog = async (f: Awaited<ReturnType<typeof fixture>>) =>
+  (await f.opened.harness.snapshot(Messages, ROOT_CONVERSATION_ID, context))?.messages ?? []
 
 async function lander(
   settings: JsonObject,
   existing?: Awaited<ReturnType<typeof repository>>,
-  boardEnabled = false,
+  messagesEnabled = false,
 ) {
-  const f = await fixture([], existing, boardEnabled)
+  const f = await fixture([], existing, messagesEnabled)
   f.host.projectSettings = async () => ({ lander: settings })
   return f
 }
@@ -1126,7 +1109,7 @@ it.concurrent('lands and reports a submission without a lineage provider', async
   expect(await readFile(join(f.projectRoot, 'no-lineage.txt'), 'utf8')).toBe('no-lineage.txt')
   expect(await rootNotes(f)).toHaveLength(0)
 })
-it.concurrent('records neither the submission nor the landing report on the board', async () => {
+it.concurrent('records neither the submission nor the landing report in the message log', async () => {
   const f = await lander({}, undefined, true)
   const id = await f.create()
   await f.service.ready(id, context)
@@ -1135,7 +1118,7 @@ it.concurrent('records neither the submission nor the landing report on the boar
   await commit(workspace.path, 'second.txt')
   const result = await f.service.submit(id, 'None', context)
   await submitted(f, id)
-  expect(await boardMessages(f)).toEqual([])
+  expect(await messageLog(f)).toEqual([])
   const report = await f.opened.harness.commit(
     (tx) => tx.submissionByRequest(id, `lander:${result.id}`),
     context,
@@ -1166,7 +1149,7 @@ it.concurrent('hands matching landings to the deploy agent exactly once', async 
               ...task.definition.phases,
               report: async (...args: Parameters<typeof reportPhase>) => {
                 const [current, runtime, ctx] = args
-                // Crash after board admission but before recording the deploy step. The next run has no step or memo.
+                // Crash after messages admission but before recording the deploy step. The next run has no step or memo.
                 await expect(
                   reportPhase(
                     current,
@@ -1195,7 +1178,7 @@ it.concurrent('hands matching landings to the deploy agent exactly once', async 
   const tip = await commit(workspace.path, 'cloud/change.txt')
   const result = await f.service.submit(id, 'None', context)
   const [report] = await submitted(f, id)
-  const messages = await boardMessages(f)
+  const messages = await messageLog(f)
   const deploy = messages.filter((message) => message.text.includes('Please deploy'))
   expect(crashes).toBe(1)
   expect(deploy).toHaveLength(1)
@@ -1233,8 +1216,8 @@ const concludedIds = async (f: Awaited<ReturnType<typeof fixture>>) =>
  */
 async function concluding() {
   const f = await lander({}, undefined, true)
-  // As the server: documents by kind, here the board, which lineage reads open questions from.
-  f.host.doc = (kind: string) => (kind === 'board' ? Board : undefined)
+  // As the server: documents by kind, here the message log, which lineage reads open questions from.
+  f.host.doc = (kind: string) => (kind === 'board' ? Messages : undefined)
   const concluded = vi.fn<ConversationsService['concludeIn']>((tx, ids) =>
     concludeIn(f.host, tx, ids),
   )
@@ -1300,7 +1283,7 @@ it.concurrent('answers input from the report run before concluding', async () =>
 it.concurrent('leaves a landed branch open while it waits on a reply it asked for', async () => {
   const { f, id, concluded, release } = await concluding()
   await f.opened.harness.commit(async (tx) => {
-    const doc = await tx.doc(Board, ROOT_CONVERSATION_ID)
+    const doc = await tx.doc(Messages, ROOT_CONVERSATION_ID)
     doc.messages.push({
       id: doc.next++,
       from: id,
@@ -1327,7 +1310,7 @@ it.concurrent('reports a landing with a deploy warning when the handoff itself f
     join(f.directory, '.ultimate/agents/deploy-test.md'),
     '---\nname: deploy-test\ndescription: Deploys\nresident: true\n---\nDeploy.\n',
   )
-  // The board is there and the agent is resident, but delivery fails, as without a subagents service.
+  // The messaging extension is there and the agent is resident, but delivery fails, as without a subagents service.
   const service = f.host.want(Handoff)!
   service.send = async () => {
     throw new Error('subagents service unavailable')
@@ -1384,7 +1367,7 @@ it.concurrent.each([
     await f.service.submit(id, 'None', context)
     const [report] = await submitted(f, id)
     expect(report).toContain('landed as')
-    const messages = await boardMessages(f)
+    const messages = await messageLog(f)
     expect(messages.filter((message) => message.text.includes('Please deploy'))).toHaveLength(0)
     const steps = (await landerLog(f)).log.filter((line) => line.step?.startsWith('deploy'))
     expect(steps.map((line) => line.step)).toEqual(step ? [step] : [])
@@ -1393,14 +1376,14 @@ it.concurrent.each([
     expect(notices).toContain(step ?? (invalid ? 'deploy hook disabled' : ''))
   },
 )
-it.concurrent('does not record a failed landing on the board', async () => {
+it.concurrent('does not record a failed landing in the message log', async () => {
   const f = await lander({ checks: ['echo REJECTED; false'] }, undefined, true)
   const id = await f.create()
   await f.service.ready(id, context)
   await commit((await f.service.get(id, context))!.path)
   await f.service.submit(id, 'None', context)
   await submitted(f, id)
-  expect(await boardMessages(f)).toEqual([])
+  expect(await messageLog(f)).toEqual([])
 })
 it.concurrent('lands two submissions in order onto a moved target and reports both', async () => {
   const f = await lander({ checks: ['test -f base.txt'] })
@@ -1776,7 +1759,7 @@ it.concurrent('resumes a landing interrupted before its push: pushes and reports
   // The resumed task merged and checked nothing again: it pushed what had landed.
   const steps = result.steps.map((row) => row.step)
   expect(steps.slice(steps.lastIndexOf('started'))).toEqual(['started', 'pushing to origin'])
-  expect(await boardMessages(f)).toEqual([])
+  expect(await messageLog(f)).toEqual([])
 })
 it.concurrent('reports a local landing whose push retry conflicts as landed locally', async () => {
   const { paths, bare } = await withRemote()
@@ -2830,6 +2813,69 @@ it.concurrent('recovery does not mark an unregistered folder ready or run tools 
   expect(f.writes).toBe(0)
   expect((await f.service.get(id, context))!.state).toBe('removed')
   expect(await readFile(join(workspace.path, 'unrelated.txt'), 'utf8')).toBe('keep me')
+})
+
+/** A ready workspace whose worktree Git removed, leaving its folder with only ignored local state, as `wrangler dev` does. */
+async function leftover(unlanded: boolean) {
+  const f = await fixture()
+  const id = await f.create()
+  await f.service.ready(id, context)
+  const workspace = (await f.service.get(id, context))!
+  if (unlanded) await commit(workspace.path, 'unlanded.txt')
+  else {
+    await commit(workspace.path)
+    await f.service.land(id, context)
+  }
+  await git(workspace.source, 'worktree', 'remove', workspace.path)
+  await mkdir(join(workspace.path, '.wrangler'), { recursive: true })
+  await writeFile(join(workspace.path, '.wrangler/state.json'), '{}')
+  return { f, id, workspace }
+}
+it.concurrent('release removes the leftover folder of a worktree Git already removed', async () => {
+  const { f, id, workspace } = await leftover(false)
+  expect(await f.service.pending([id], context)).toEqual([])
+  expect(await f.service.release([id], context)).toEqual([])
+  await expect(access(workspace.path)).rejects.toThrow('ENOENT')
+  expect(await git(f.projectRoot, 'branch', '--list', workspace.branch)).toBe('')
+  expect((await f.service.get(id, context))!.state).toBe('removed')
+  expect(await git(f.projectRoot, 'status', '--porcelain')).toBe('')
+})
+it.concurrent('release keeps the unlanded branch of a worktree Git already removed', async () => {
+  const { f, id, workspace } = await leftover(true)
+  const tip = await git(f.projectRoot, 'rev-parse', workspace.branch)
+  const expected = [{ id, uncommitted: 0, unlanded: 1 }]
+  expect(await f.service.pending([id], context)).toEqual(expected)
+  expect(await f.service.release([id], context)).toEqual(expected)
+  expect(await git(f.projectRoot, 'rev-parse', workspace.branch)).toBe(tip)
+  expect(await readFile(join(workspace.path, '.wrangler/state.json'), 'utf8')).toBe('{}')
+})
+it.concurrent('release never removes a registered checkout whose .git file is broken', async () => {
+  const f = await fixture()
+  const id = await f.create()
+  await f.service.ready(id, context)
+  const workspace = (await f.service.get(id, context))!
+  await writeFile(join(workspace.path, 'precious.txt'), 'keep me')
+  await writeFile(join(workspace.path, '.git'), 'gitdir: /nowhere\n')
+  await expect(f.service.release([id], context)).rejects.toThrow('not a git repository')
+  expect(await readFile(join(workspace.path, 'precious.txt'), 'utf8')).toBe('keep me')
+})
+it.concurrent('release leaves a folder that a failed preparation found at the path', async () => {
+  const f = await fixture()
+  const id = await f.create()
+  const workspace = (await f.service.get(id, context))!
+  await mkdir(workspace.path, { recursive: true })
+  await writeFile(join(workspace.path, 'foreign.txt'), 'not ours')
+  await f.service.ready(id, context)
+  expect((await f.service.get(id, context))!.state).toBe('failed')
+  expect(await f.service.release([id], context)).toEqual([
+    {
+      id,
+      uncommitted: 0,
+      unlanded: 0,
+      reason: expect.stringContaining('not a registered checkout'),
+    },
+  ])
+  expect(await readFile(join(workspace.path, 'foreign.txt'), 'utf8')).toBe('not ours')
 })
 
 it.concurrent('the tool gate blocks a checkout removed after the provider request began', async () => {

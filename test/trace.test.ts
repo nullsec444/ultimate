@@ -1,4 +1,4 @@
-import { mkdir, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import { afterAll, expect, it, vi } from 'vitest'
@@ -84,7 +84,7 @@ export default (host) => {
 }`,
 }
 
-/** A minimal Ultimate with the five extensions above and the real secrets extension. */
+/** A minimal Ultimate with the five extensions above. */
 async function start() {
   const root = await temp('ultimate-trace-')
   await linkDependencies(root)
@@ -94,7 +94,6 @@ async function start() {
     "export default { root: 'web', optimizeDeps: { noDiscovery: true } }",
   )
   await mkdir(join(root, 'extensions'))
-  await symlink(resolve('extensions/secrets'), join(root, 'extensions/secrets'))
   for (const [name, source] of Object.entries(extensions)) {
     await mkdir(join(root, 'extensions', name))
     await writeFile(join(root, 'extensions', name, 'server.ts'), source)
@@ -178,19 +177,6 @@ it('records failing service calls and passes the error through unchanged', async
   const action = server.extensions.trace.query().find((row) => row.name === 'alpha/fail')!
   expect(rows.every((row) => row.parent === action.id && row.trace === action.trace)).toBe(true)
   expect(action).toMatchObject({ ok: true, caller: 'ui', result: '[true,true]' })
-})
-
-it('records secrets actions without arguments or results', async () => {
-  const server = await start()
-  await server.extensions.invoke('secrets', 'set', { name: 'TRACE_TEST', value: 'hunter2' }, signal)
-  expect(await server.extensions.invoke('secrets', 'list', null, signal)).toContainEqual(
-    expect.objectContaining({ name: 'TRACE_TEST', set: true }),
-  )
-  const rows = server.extensions.trace.query().filter((row) => row.callee === 'secrets')
-  expect(rows.map((row) => row.name)).toEqual(['secrets/set', 'secrets/list'])
-  for (const row of rows) expect(row).not.toHaveProperty('args')
-  for (const row of rows) expect(row).not.toHaveProperty('result')
-  expect(JSON.stringify(server.extensions.trace.query())).not.toContain('hunter2')
 })
 
 it('links a tool call to its conversation and tool-call entry, with service calls as children', async () => {

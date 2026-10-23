@@ -115,31 +115,42 @@ export const actions: UltimateActions = {
   closePanel: () => setRegionOpen('panels', false),
   togglePanel: () => setRegionOpen('panels', !regionOpen('panels')),
   toggleSidebar: () => setRegionOpen('sidebar', !regionOpen('sidebar')),
-  runCommand: (id) => {
-    const command = allCommands().find((candidate) => candidate.id === id)
-    if (!command) return
-    const context = currentContext()
-    if (!applies(command, context)) return
-    void Promise.resolve()
-      .then(() => command.run(context))
-      .catch((error: unknown) =>
-        store.notify({
-          level: 'error',
-          message: `${command.title}${command.extension === 'core' ? '' : ` (${command.extension})`}: ${errorMessage(error)}`,
-        }),
-      )
-  },
+  runCommand: (id) => runCommand(id),
   open: (dialog) => store.setUi({ dialogs: { ...store.getState().ui.dialogs, [dialog]: true } }),
   close: (dialog) => store.setUi({ dialogs: { ...store.getState().ui.dialogs, [dialog]: false } }),
   openPalette: () => store.setUi({ paletteOpen: true }),
-  focusComposer: () => document.getElementById('composer-input')?.focus(),
+  // The shown conversation's composer, unless something covers it (`inert`), such as a side chat in front of it.
+  focusComposer: () =>
+    [
+      document.getElementById('composer-input'),
+      ...document.querySelectorAll('[data-composer-target] textarea'),
+    ]
+      .find(
+        (input): input is HTMLElement => input instanceof HTMLElement && !input.closest('[inert]'),
+      )
+      ?.focus(),
   setTheme: (theme) => store.setUi({ theme }),
 }
 
-export function currentContext(): UltimateContext {
+/** Run command `id` in `context`, reporting a failure as a notice; shortcuts pass the context of where they were typed. */
+export function runCommand(id: string, context: UltimateContext = currentContext()) {
+  const command = allCommands().find((candidate) => candidate.id === id)
+  if (!command || !applies(command, context)) return
+  void Promise.resolve()
+    .then(() => command.run(context))
+    .catch((error: unknown) =>
+      store.notify({
+        level: 'error',
+        message: `${command.title}${command.extension === 'core' ? '' : ` (${command.extension})`}: ${errorMessage(error)}`,
+      }),
+    )
+}
+
+/** The shell's context; `scoped` is the `ConversationScope` a shortcut was typed in, which it acts on instead. */
+export function currentContext(scoped?: number): UltimateContext {
   return {
     ...actions,
-    conversationId: store.getState().view?.conversation.id,
+    conversationId: scoped ?? store.getState().view?.conversation.id,
     surface: store.getState().ui.surface?.id ?? HOME,
   }
 }

@@ -30,6 +30,8 @@ import { context, prepareHarness } from '../server/harness.ts'
 import { emit } from '../server/events.ts'
 import type { OpenHost } from '../server/harness.ts'
 import subagents, { actions } from '../extensions/subagents/server.ts'
+import watchdog from '../extensions/watchdog/server.ts'
+import type { ExtensionHost } from '../server/extensions.ts'
 import { Started, Subagents } from '../extensions/subagents/api.ts'
 import type { ActionContext } from '../server/actions.ts'
 import codemode from '../extensions/codemode/server.ts'
@@ -54,10 +56,11 @@ async function directory() {
 async function fixture(
   extension?: Extension,
   observe?: (transcript: Parameters<FauxResponseFactory>[0]) => void,
-  reportGate?: { promise: Promise<void>; entered: boolean; phase?: string; attempt?: 1 },
+  reportGate?: { promise: Promise<void>; entered: boolean; phase?: string },
   respond?: (
     transcript: Parameters<FauxResponseFactory>[0],
   ) => ReturnType<FauxResponseFactory> | undefined,
+  watch = false,
 ) {
   const ultimateRoot = await directory()
   const userHome = await directory()
@@ -81,7 +84,7 @@ async function fixture(
   let opened: OpenHost | undefined
   const onOpen: (() => Promise<void>)[] = []
   const onClose: (() => Promise<void>)[] = []
-  let backend = subagents({
+  const backend = subagents({
     projectSettings: () => projectSettings(prepared.projectRoot, prepared.userHome),
     ...prepared,
     harness: () => opened!.harness,
@@ -99,35 +102,6 @@ async function fixture(
     },
     emit,
   })
-  backend = {
-    ...backend,
-    tasks: backend.tasks!.map((task) => {
-      if (task.definition.name !== 'ultimate.subagent-reporter') return task
-      const reporter = task as unknown as Task<JsonValue, { phase: string }, JsonValue, object>
-      return {
-        definition: {
-          ...reporter.definition,
-          phases: {
-            ...reporter.definition.phases,
-            retry: (
-              ...[retryTask, runtime, taskContext]: Parameters<
-                typeof reporter.definition.phases.retry
-              >
-            ) =>
-              reporter.definition.phases.retry(
-                retryTask,
-                {
-                  ...runtime,
-                  sleepUntil: (_until, checkpoint, sleepContext) =>
-                    runtime.sleepUntil(Date.now() + 5, checkpoint, sleepContext),
-                },
-                taskContext,
-              ),
-          },
-        },
-      }
-    }),
-  }
   prepared.registry.install(
     reportGate
       ? {
@@ -136,7 +110,7 @@ async function fixture(
             if (task.definition.name !== 'ultimate.subagent-reporter') return task
             const reporter = task as unknown as Task<
               JsonValue,
-              { phase: string; retryRequest?: string },
+              { phase: string },
               JsonValue,
               object
             >
@@ -149,13 +123,8 @@ async function fixture(
                   [phase]: async (
                     ...args: Parameters<typeof reporter.definition.phases.report>
                   ) => {
-                    if (
-                      reportGate.attempt === undefined ||
-                      args[0].state.checkpoint.retryRequest !== undefined
-                    ) {
-                      reportGate.entered = true
-                      await awaitWithContext(reportGate.promise, args[2])
-                    }
+                    reportGate.entered = true
+                    await awaitWithContext(reportGate.promise, args[2])
                     await reporter.definition.phases[phase](...args)
                   },
                 },
@@ -165,6 +134,23 @@ async function fixture(
         }
       : backend,
   )
+  if (watch)
+    prepared.registry.install(
+      watchdog({
+        ...prepared,
+        harness: () => opened!.harness,
+        metadata: Metadata,
+        need: idleNeed,
+        notice: (message: string) => errors.push(message),
+        onOpen: (callback: () => Promise<void>) => {
+          onOpen.push(callback)
+        },
+        onClose: (callback: () => Promise<void>) => {
+          onClose.push(callback)
+        },
+        onRelease: () => {},
+      } as unknown as ExtensionHost),
+    )
   prepared.registry.install(
     codemode({
       ...prepared,
@@ -546,65 +532,110 @@ async function reports(opened: OpenHost) {
 }
 
 describe('provider error recovery', () => {
-  const retryText =
-    'Your previous run stopped with a provider error. Continue from where you left off; check what you already did and do not redo it.'
-
-  it('delays and retries an unavailable model without a failure report', async () => {
-    const held = { ...gate(), entered: false, phase: 'deliver' }
-    const f = await fixture(undefined, undefined, held)
-    await call(f.opened, {
-      action: 'start',
-      agent: 'scout',
-      task: 'temporarily unavailable',
-      background: true,
-    })
-    await until(async () => held.entered)
-    const [child] = await children(f.opened)
-    await f.opened.harness.commit(
-      (tx) =>
-        configure(tx, child.conversationId, { model: { provider: 'missing', modelId: 'missing' } }),
-      context,
-    )
-    let deadline: number | undefined
-    const repaired = Promise.withResolvers<void>()
-    const unsubscribe = f.opened.harness.subscribeCommits((publication) => {
-      for (const change of publication.changes) {
-        if (
-          change.type !== 'task' ||
-          change.value.kind !== 'ultimate.subagent-reporter' ||
-          change.value.state.status !== 'running'
-        )
-          continue
-        const checkpoint = change.value.state.checkpoint as { phase: string; until?: number }
-        if (checkpoint.phase !== 'retry') continue
-        deadline = checkpoint.until
-        void f.opened.harness
-          .commit(
-            (tx) =>
-              configure(tx, child.conversationId, {
-                model: { provider: 'faux', modelId: 'faux-1' },
-              }),
-            context,
-          )
-          .then(() => repaired.resolve(), repaired.reject)
-      }
-    })
-    held.release()
-    await repaired.promise
-    expect(deadline! - Date.now()).toBeGreaterThan(19_000)
-    await until(async () => (await reports(f.opened)).length === 1)
-    await f.opened.harness.waitForIdle(context)
-    unsubscribe()
-    const delivered = await reports(f.opened)
-    expect(delivered).toHaveLength(1)
-    expect(delivered[0].model![0].content).toContain(retryText)
-    expect(delivered[0].model![0].content).not.toContain('failed:')
-  })
-
   it.each([false, true])(
-    'delivers a manual answer once after the automatic retry fails with no_model (offline: %s)',
+    'delivers a successful watchdog retry of a finished child’s one-way message once (offline: %s)',
     async (offlineAnswer) => {
-      const held = { ...gate(), entered: false, phase: 'deliver', attempt: 1 as const }
+      const f = await fixture(undefined, undefined, undefined, (transcript) =>
+        transcript.messages.at(-1)?.role === 'user' &&
+        transcript.messages.at(-1)?.content === 'one-way failure'
+          ? fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'not logged in' })
+          : undefined,
+      )
+      await call(f.opened, { action: 'start', agent: 'scout', task: 'initial answer' })
+      const [child] = await children(f.opened)
+      const handle = (await f.opened.harness.conversation(child.conversationId, context))!
+      await (
+        await handle.submit(
+          {
+            type: 'input',
+            content: 'one-way failure',
+            entry: {
+              kind: 'board.message',
+              data: { from: f.opened.root.id, reply: false },
+            },
+          },
+          context,
+        )
+      ).wait(context)
+      expect(
+        Object.values(
+          (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!.actions,
+        ).map((action) => action.status),
+      ).toEqual(['done'])
+      const before = (await reports(f.opened)).length
+      let opened = f.opened
+      if (offlineAnswer) {
+        await opened.close()
+        hosts.splice(hosts.indexOf(opened), 1)
+        opened = await f.prepared.open()
+        hosts.push(opened)
+      }
+      await (
+        await (await opened.harness.conversation(child.conversationId, context))!.submit(
+          {
+            type: 'input',
+            content: 'recovered one-way answer',
+            requestId: 'watchdog-retry:one-way',
+          },
+          context,
+        )
+      ).wait(context)
+      if (!offlineAnswer) {
+        await until(async () => (await reports(opened)).length === before + 1)
+        await opened.harness.waitForIdle(context)
+      }
+      await opened.close()
+      hosts.splice(hosts.indexOf(opened), 1)
+      const resumed = await f.reopen()
+      await until(async () => (await reports(resumed)).length === before + 1)
+      await resumed.harness.waitForIdle(context)
+      expect(
+        (await reports(resumed)).filter((entry) =>
+          JSON.stringify(entry.model).includes('recovered one-way answer'),
+        ),
+      ).toHaveLength(1)
+      expect((await children(resumed))[0].reported).toHaveLength(2)
+      await resumed.close()
+      hosts.splice(hosts.indexOf(resumed), 1)
+      const again = await f.reopen()
+      await again.harness.waitForIdle(context)
+      expect(await reports(again)).toHaveLength(before + 1)
+    },
+  )
+  it('sends one watchdog card to the actual parent without a reporter failure', async () => {
+    const f = await fixture(
+      undefined,
+      undefined,
+      undefined,
+      (transcript) =>
+        transcript.messages.at(-1)?.role === 'user' &&
+        transcript.messages.at(-1)?.content === 'fail'
+          ? fauxAssistantMessage('', {
+              stopReason: 'error',
+              errorMessage: 'invalid model configuration',
+            })
+          : undefined,
+      true,
+    )
+    await call(f.opened, { action: 'start', agent: 'scout', task: 'fail', background: true })
+    const failures = async () =>
+      (await f.opened.root.viewState(context)).value.entries.filter(
+        (entry) => entry.kind === 'watchdog.failure',
+      )
+    await until(async () => (await failures()).length === 1)
+    await f.opened.harness.waitForIdle(context)
+    expect((await failures())[0].data).toMatchObject({
+      conversation: (await children(f.opened))[0].conversationId,
+      error: 'invalid model configuration',
+      retried: false,
+    })
+    expect(await reports(f.opened)).toHaveLength(0)
+    expect(f.errors).toEqual([])
+  })
+  it.each([false, true])(
+    'leaves provider failures to watchdog and delivers its retry answer once (offline: %s)',
+    async (offlineAnswer) => {
+      const held = { ...gate(), entered: false, phase: 'deliver' }
       const f = await fixture(undefined, undefined, held, (transcript) => {
         const last = transcript.messages.at(-1)!
         if (last.role === 'user' && last.content === 'provider failure')
@@ -627,9 +658,13 @@ describe('provider error recovery', () => {
         context,
       )
       held.release()
-      await until(async () => (await reports(f.opened)).length === 1)
       await f.opened.harness.waitForIdle(context)
-      expect(JSON.stringify(await reports(f.opened))).toContain('failed: no_model')
+      await until(async () =>
+        Object.values(
+          (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!.actions,
+        ).every((action) => action.status === 'failed'),
+      )
+      expect(await reports(f.opened)).toHaveLength(0)
       await f.opened.harness.commit(
         (tx) =>
           configure(tx, child.conversationId, { model: { provider: 'faux', modelId: 'faux-1' } }),
@@ -638,9 +673,12 @@ describe('provider error recovery', () => {
       const handle = (await f.opened.harness.conversation(child.conversationId, context))!
       if (!offlineAnswer) {
         await (
-          await handle.submit({ type: 'input', content: 'manual continuation' }, context)
+          await handle.submit(
+            { type: 'input', content: 'manual continuation', requestId: 'watchdog-retry:fixture' },
+            context,
+          )
         ).wait(context)
-        await until(async () => (await reports(f.opened)).length === 2)
+        await until(async () => (await reports(f.opened)).length === 1)
         await f.opened.harness.waitForIdle(context)
       }
       // An unobserved completion exercises the startup scan instead of live delivery.
@@ -651,23 +689,23 @@ describe('provider error recovery', () => {
       if (offlineAnswer)
         await (
           await (await offline.harness.conversation(child.conversationId, context))!.submit(
-            { type: 'input', content: 'manual continuation' },
+            { type: 'input', content: 'manual continuation', requestId: 'watchdog-retry:fixture' },
             context,
           )
         ).wait(context)
       await offline.close()
       hosts.splice(hosts.indexOf(offline), 1)
       const resumed = await f.reopen()
-      await until(async () => (await reports(resumed)).length === 2)
+      await until(async () => (await reports(resumed)).length === 1)
       await resumed.harness.waitForIdle(context)
       const delivered = await reports(resumed)
-      expect(delivered).toHaveLength(2)
-      expect(delivered[1].model![0].content).toContain(
+      expect(delivered).toHaveLength(1)
+      expect(delivered[0].model![0].content).toContain(
         `[subagent ${child.conversationId} (scout) answered]`,
       )
-      expect(delivered[1].model![0].content).toContain('manual continuation')
+      expect(delivered[0].model![0].content).toContain('manual continuation')
       expect((await children(resumed))[0].reported).toHaveLength(1)
-      expect(delivered[1].data).toMatchObject({
+      expect(delivered[0].data).toMatchObject({
         sender: child.conversationId,
         kind: 'report',
         entry: (await children(resumed))[0].reported[0],
@@ -676,7 +714,7 @@ describe('provider error recovery', () => {
       hosts.splice(hosts.indexOf(resumed), 1)
       const again = await f.reopen()
       await again.harness.waitForIdle(context)
-      expect(await reports(again)).toHaveLength(2)
+      expect(await reports(again)).toHaveLength(1)
       await call(again, { action: 'message', id: handle.id, text: 'reporter continuation' })
       await again.harness.waitForIdle(context)
       expect((await children(again))[0].reported).toHaveLength(2)
@@ -688,302 +726,22 @@ describe('provider error recovery', () => {
     },
   )
 
-  for (const retryFails of [false, true])
-    it(`retries a model error once and ${retryFails ? 'reports the second failure' : 'delivers the answer without a failure report'}`, async () => {
-      const inputs: string[] = []
-      const f = await fixture(undefined, undefined, undefined, (transcript) => {
-        const last = transcript.messages.at(-1)!
-        if (
-          last.role !== 'user' ||
-          (last.content !== 'provider failure' && last.content !== retryText)
-        )
-          return undefined
-        inputs.push(last.content)
-        return last.content === 'provider failure' || retryFails
-          ? fauxAssistantMessage('', {
-              stopReason: 'error',
-              errorMessage: 'fixture provider error',
-            })
-          : fauxAssistantMessage('Recovered answer')
-      })
-      await call(f.opened, {
-        action: 'start',
-        agent: 'scout',
-        task: 'provider failure',
-        background: true,
-      })
-      // The Reporter is a background task: idle does not wait for its retry.
-      await until(async () => (await reports(f.opened)).length === 1)
-      await f.opened.harness.waitForIdle(context)
-      expect(inputs).toEqual(['provider failure', retryText])
-      const delivered = await reports(f.opened)
-      expect(delivered).toHaveLength(1)
-      const text = delivered[0].model![0].content
-      expect(text).toContain(retryFails ? 'failed: model_error' : 'Recovered answer')
-      expect(JSON.stringify(text).includes('failed:')).toBe(retryFails)
-      expect(f.errors).toEqual([])
-    })
-
-  it('keeps the durable retry deadline across restart and cancels it on stop', async () => {
-    const held = { ...gate(), entered: false, phase: 'retry' }
-    let continuations = 0
-    const f = await fixture(undefined, undefined, held, (transcript) => {
-      const last = transcript.messages.at(-1)!
-      if (last.role === 'user' && last.content === retryText) continuations++
-      if (last.role === 'user' && last.content === 'provider failure')
-        return fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'provider failed' })
-      return undefined
-    })
-    await call(f.opened, {
-      action: 'start',
-      agent: 'scout',
-      task: 'provider failure',
-      background: true,
-    })
-    await until(async () => held.entered)
-    const [child] = await children(f.opened)
-    const state = (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!
-    const action = Object.values(state.actions)[0]
-    const before = (await f.opened.harness.getTask(action.reporter, context))!.state
-    expect(before).toMatchObject({ checkpoint: { phase: 'retry', until: expect.any(Number) } })
-    await f.opened.close()
-    hosts.splice(hosts.indexOf(f.opened), 1)
-    const resumed = await f.reopen()
-    expect((await resumed.harness.getTask(action.reporter, context))!.state).toEqual(before)
-    await call(resumed, { action: 'stop', id: child.conversationId })
-    held.release()
-    await resumed.harness.waitForIdle(context)
-    expect(continuations).toBe(0)
-    expect(
-      await resumed.harness.commit(
-        (tx) => tx.submissionByRequest(child.conversationId, action.retryRequest!),
-        context,
-      ),
-    ).toBeUndefined()
-    expect(await reports(resumed)).toHaveLength(0)
-  })
-
-  it('shares one continuation across restart for start and steering inputs that fail in the same run', async () => {
-    const held = { ...gate(), entered: false }
-    const recoveryGate = { ...gate(), entered: false, phase: 'deliver', attempt: 1 as const }
-    let continuations = 0
-    const f = await fixture(
-      defineExtension({
-        name: 'hold',
-        tools: [
-          defineTool({
-            name: 'hold',
-            description: 'Hold the child tool round',
-            parameters: Type.Object({}),
-            replay: 'safe',
-            execute: async (_args, _api, toolContext) => {
-              held.entered = true
-              await awaitWithContext(held.promise, toolContext)
-              return { output: [{ type: 'text', text: 'released' }] }
-            },
-          }),
-        ],
-      }),
-      undefined,
-      recoveryGate,
-      (transcript) => {
-        const last = transcript.messages.at(-1)!
-        if (last.role === 'user' && last.content === 'shared failure')
-          return fauxAssistantMessage([fauxToolCall('hold', {})], { stopReason: 'toolUse' })
-        if (last.role === 'user' && last.content === retryText) {
-          continuations++
-          return fauxAssistantMessage('Shared recovery')
-        }
-        if (
-          transcript.messages.some(
-            (message) => message.role === 'user' && message.content === 'steer failure',
-          )
-        )
-          return fauxAssistantMessage('', {
+  it('returns provider failure to foreground start without sending a parent failure report', async () => {
+    const f = await fixture(undefined, undefined, undefined, (transcript) =>
+      transcript.messages.at(-1)?.role === 'user' && transcript.messages.at(-1)?.content === 'fail'
+        ? fauxAssistantMessage('', {
             stopReason: 'error',
-            errorMessage: 'shared provider error',
+            errorMessage: 'invalid model configuration',
           })
-        return undefined
-      },
+        : undefined,
     )
-    await call(f.opened, {
-      action: 'start',
-      agent: 'scout',
-      task: 'shared failure',
-      background: true,
-    })
-    await until(async () => held.entered)
+    const result = await call(f.opened, { action: 'start', agent: 'scout', task: 'fail' })
+    expect(result.text).toContain('failed')
     const [child] = await children(f.opened)
-    await startCall(f.opened, {
-      action: 'message',
-      id: child.conversationId,
-      text: 'steer failure',
-      steer: true,
-    })
-    await until(
-      async () =>
-        (await f.opened.harness.snapshot(InboxDoc, child.conversationId, context))!.items.length ===
-        1,
-    )
-    held.release()
-    await until(async () =>
-      Object.values(
-        (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!.actions,
-      ).every((action) => action.retryRequest !== undefined),
-    )
-    expect(continuations).toBe(0)
-    await f.opened.close()
-    hosts.splice(hosts.indexOf(f.opened), 1)
-    recoveryGate.release()
-    const resumed = await f.reopen()
-    await until(async () =>
-      Object.values(
-        (await resumed.harness.snapshot(Subagents, resumed.root.id, context))!.actions,
-      ).every((action) => action.status === 'done'),
-    )
-    await resumed.harness.waitForIdle(context)
-    expect(continuations).toBe(1)
-    const state = (await resumed.harness.snapshot(Subagents, resumed.root.id, context))!
-    const requests = Object.values(state.actions).map((action) => action.retryRequest)
-    expect(requests).toHaveLength(2)
-    expect(requests[0]).toMatch(/^subagent-retry:/)
-    expect(new Set(requests).size).toBe(1)
-    expect(Object.values(state.actions).map((action) => action.status)).toEqual(['done', 'done'])
-    expect(f.errors).toEqual([])
-  })
-
-  for (const queued of [false, true])
-    it(`stops a ${queued ? 'queued' : 'running'} recovery without a later continuation`, async () => {
-      const held = { ...gate(), entered: false }
-      const recoveryGate = { ...gate(), entered: false, phase: 'deliver', attempt: 1 as const }
-      let continuations = 0
-      const f = await fixture(
-        defineExtension({
-          name: 'hold',
-          tools: [
-            defineTool({
-              name: 'hold',
-              description: 'Hold a child run',
-              parameters: Type.Object({}),
-              replay: 'safe',
-              execute: async (_args, _api, toolContext) => {
-                held.entered = true
-                await awaitWithContext(held.promise, toolContext)
-                return { output: [{ type: 'text', text: 'released' }] }
-              },
-            }),
-          ],
-        }),
-        undefined,
-        queued ? recoveryGate : undefined,
-        (transcript) => {
-          const last = transcript.messages.at(-1)!
-          if (last.role === 'user' && last.content === 'provider failure')
-            return fauxAssistantMessage('', {
-              stopReason: 'error',
-              errorMessage: 'fixture provider error',
-            })
-          if (last.role === 'user' && last.content === retryText) {
-            continuations++
-            return fauxAssistantMessage([fauxToolCall('hold', {})], { stopReason: 'toolUse' })
-          }
-          return undefined
-        },
-      )
-      await call(f.opened, {
-        action: 'start',
-        agent: 'scout',
-        task: 'provider failure',
-        background: true,
-      })
-      const [child] = await children(f.opened)
-      if (queued) {
-        await until(async () => recoveryGate.entered)
-        const handle = (await f.opened.harness.conversation(child.conversationId, context))!
-        await handle.submit({ type: 'input', content: 'HOLD' }, context)
-        await until(async () => held.entered)
-        recoveryGate.release()
-        await until(
-          async () =>
-            (await f.opened.harness.snapshot(InboxDoc, child.conversationId, context))!.items
-              .length === 1,
-        )
-      } else await until(async () => held.entered)
-      const state = (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!
-      const request = Object.values(state.actions)[0].retryRequest!
-      await call(f.opened, { action: 'stop', id: child.conversationId })
-      held.release()
-      await f.opened.harness.waitForIdle(context)
-      expect(continuations).toBe(queued ? 0 : 1)
-      expect(
-        (await f.opened.harness.snapshot(InboxDoc, child.conversationId, context))!.items,
-      ).toHaveLength(0)
-      expect(
-        (await f.opened.harness.snapshot(LiveDoc, child.conversationId, context))?.run,
-      ).toBeUndefined()
-      expect(
-        await f.opened.harness.commit(
-          (tx) => tx.submissionByRequest(child.conversationId, request),
-          context,
-        ),
-      ).toMatchObject({ status: 'unanswered', reason: 'aborted' })
-      expect(await reports(f.opened)).toHaveLength(0)
-      expect(f.errors).toEqual([])
-    })
-
-  it('persists the retry checkpoint across restart without retrying a second failure', async () => {
-    const retryGate = { ...gate(), entered: false, phase: 'deliver', attempt: 1 as const }
-    const inputs: string[] = []
-    const f = await fixture(undefined, undefined, retryGate, (transcript) => {
-      const last = transcript.messages.at(-1)!
-      if (
-        last.role !== 'user' ||
-        (last.content !== 'provider failure' && last.content !== retryText)
-      )
-        return undefined
-      inputs.push(last.content)
-      return fauxAssistantMessage('', {
-        stopReason: 'error',
-        errorMessage: 'fixture provider error',
-      })
-    })
-    await call(f.opened, {
-      action: 'start',
-      agent: 'scout',
-      task: 'provider failure',
-      background: true,
-    })
-    await until(async () => retryGate.entered)
-    expect(inputs).toEqual(['provider failure'])
+    const waited = await call(f.opened, { action: 'wait', id: child.conversationId })
+    expect(waited.text).toContain('ended its turn without an answer (error)')
+    await f.opened.harness.waitForIdle(context)
     expect(await reports(f.opened)).toHaveLength(0)
-    const state = (await f.opened.harness.snapshot(Subagents, f.opened.root.id, context))!
-    const reporter = Object.values(state.actions)[0].reporter
-    expect((await f.opened.harness.getTask(reporter, context))?.state).toMatchObject({
-      status: 'running',
-      checkpoint: { phase: 'deliver', retryRequest: expect.stringMatching(/^subagent-retry:/) },
-    })
-    await f.opened.close()
-    hosts.splice(hosts.indexOf(f.opened), 1)
-    retryGate.release()
-    const resumed = await f.reopen()
-    await until(async () => (await reports(resumed)).length === 1)
-    await resumed.harness.waitForIdle(context)
-    expect(inputs).toEqual(['provider failure', retryText])
-    const delivered = await reports(resumed)
-    expect(delivered).toHaveLength(1)
-    expect(delivered[0].model![0].content).toMatch(/failed: model_error/)
-    expect(
-      await resumed.harness.commit(
-        async (tx) =>
-          tx.submissionByRequest(
-            Object.values(state.agents)[0].conversationId,
-            (await tx.doc(Subagents, resumed.root.id)).actions[Object.keys(state.actions)[0]]
-              .retryRequest!,
-          ),
-        context,
-      ),
-    ).toBeDefined()
-    expect(f.errors).toEqual([])
   })
 })
 
@@ -1129,7 +887,7 @@ describe('turns without an answer', () => {
     await f.opened.harness.waitForIdle(context)
     const [child] = await children(f.opened)
     const handle = (await f.opened.harness.conversation(child.conversationId, context))!
-    // What the Board's delivery submits: a two-way message gets a Board reply, a one-way one nothing.
+    // What message delivery submits: a two-way message gets a reply, a one-way one nothing.
     const deliver = async (id: number, reply: boolean, content: string) =>
       (
         await handle.submit(
@@ -1232,7 +990,7 @@ describe('turns without an answer', () => {
   })
 })
 
-function stopCaptureGate(f: Awaited<ReturnType<typeof gatedFixture>>) {
+function stopCaptureGate(f: Awaited<ReturnType<typeof gatedFixture>>, legacy = false) {
   const state = { ...gate(), entered: false, enabled: true }
   f.prepared.registry.install(
     defineExtension({
@@ -1248,6 +1006,11 @@ function stopCaptureGate(f: Awaited<ReturnType<typeof gatedFixture>>) {
                 {
                   ...api,
                   memo: (name: string, value: JsonValue | Context, memoContext?: Context) => {
+                    // The memo shape saved before the watchdog existed: no `watchdogs` list.
+                    if (legacy && name === 'stopTarget' && memoContext !== undefined) {
+                      const { watchdogs: _, ...old } = value as { watchdogs?: unknown }
+                      value = old
+                    }
                     const saved =
                       memoContext === undefined
                         ? api.memo(name, value as Context)
@@ -1559,6 +1322,28 @@ describe('subagents', () => {
     f.childGate.release()
     expect(await submission.wait(context)).toMatchObject({ status: 'done' })
     expect(await reports(resumed)).toHaveLength(0)
+    expect(f.errors).toEqual([])
+  })
+
+  it('finishes a stop whose captured identities were saved before the watchdog', async () => {
+    const f = await gatedFixture()
+    await call(f.opened, { action: 'start', agent: 'scout', task: 'HOLD', background: true })
+    const [child] = await children(f.opened)
+    await until(async () => f.holding.has(child.conversationId))
+    const stopGate = stopCaptureGate(f, true)
+    await startCall(f.opened, { action: 'stop', id: child.conversationId })
+    await until(async () => stopGate.entered)
+    await f.opened.close()
+    hosts.splice(hosts.indexOf(f.opened), 1)
+    stopGate.enabled = false
+    const resumed = await f.reopen()
+    await resumed.root.waitForIdle(context)
+    expect(await latestResult(resumed)).toMatchObject({
+      content: [{ type: 'text', text: `Stopped ${child.conversationId}.` }],
+    })
+    expect(
+      (await resumed.harness.snapshot(LiveDoc, child.conversationId, context))?.run,
+    ).toBeUndefined()
     expect(f.errors).toEqual([])
   })
 
@@ -1975,11 +1760,11 @@ describe('subagents', () => {
     await expect(actions.saveDefinition(override, ctx)).rejects.toThrow(
       "Choose this project's local setup",
     )
-    expect(await actions.definitions(null, ctx)).toMatchObject({ projectLocal: false })
+    expect(await actions.definitions(null, ctx)).toMatchObject({ projectSetup: 'undecided' })
     new ProjectTrustStore(join(userHome, '.ultimate')).set(prepared.projectRoot, true)
     const listed = await actions.definitions(null, ctx)
     expect(listed).toMatchObject({
-      projectLocal: true,
+      projectSetup: 'trusted',
       scopes: { user: join(userHome, '.ultimate/agents'), project },
       definitions: [{ name: 'scout', source: 'builtin' }],
     })

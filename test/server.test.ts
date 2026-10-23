@@ -19,7 +19,7 @@ import { UiState } from '../server/ui-state.ts'
 import { Metadata } from '../server/metadata.ts'
 import type { ConversationSummary, ServerEvents } from '../shared/protocol.ts'
 import { Logins } from '../extensions/models/server.ts'
-import { fixture, orderedSource, servers } from './server-fixture.ts'
+import { fixture, holdResponse, orderedSource, servers } from './server-fixture.ts'
 import { eventHost } from './helpers.ts'
 import { UserInputEvent } from '../shared/events.ts'
 
@@ -412,6 +412,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('withdraws one queued input without aborting the current run or another conversation', async () => {
     const { server } = await fixture()
+    holdResponse(server)
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     const run = (await server.harness.snapshot(LiveDoc, server.root.id, context))?.run?.taskId
     expect(run).toBeDefined()
@@ -438,6 +439,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('stops the run but keeps queued follow-ups, delivering them before the next input', async () => {
     const { server } = await fixture()
+    holdResponse(server)
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     const run = (await server.harness.snapshot(LiveDoc, server.root.id, context))?.run?.taskId
     expect(run).toBeDefined()
@@ -469,6 +471,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('records each typed input as one user.input event with its device and never its text', async () => {
     const { server } = await fixture()
+    holdResponse(server)
     const submit = (text: string, whenBusy?: string) =>
       fetch(server.url + '/api/conversations/1/submit', {
         method: 'POST',
@@ -632,6 +635,15 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('streams a SQLite tool turn as ops that exactly replicate the committed view', async () => {
     const { server } = await fixture()
+    const scratch = join(server.host.home, 'demo.txt')
+    await writeFile(scratch, 'before\n')
+    server.host.faux!.setResponses([
+      fauxAssistantMessage([fauxToolCall('read', { path: scratch })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('write', { path: scratch, content: 'after\n' })], {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage('Complete'),
+    ])
     const stream = await attach(server)
     expect(stream.events.slice(0, 3).map((event) => event.name)).toEqual([
       'system',
@@ -734,6 +746,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('queues images as steer and follow-up content while busy', async () => {
     const { server } = await fixture()
+    holdResponse(server)
     const image = { data: 'aGVsbG8=', mimeType: 'image/png' }
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     expect((await server.harness.snapshot(LiveDoc, server.root.id, context))?.run).toBeDefined()

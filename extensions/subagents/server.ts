@@ -102,7 +102,7 @@ function createReporter() {
       sourceEntry?: EntryId
       answer?: EntryId
     },
-    | { phase: 'deliver'; retryRequest?: string }
+    | { phase: 'deliver' }
     | { phase: 'retry'; retryRequest: string; until: number }
     | { phase: 'report'; report?: string; answer?: EntryId },
     null
@@ -114,20 +114,20 @@ function createReporter() {
         ? { phase: 'deliver' }
         : { phase: 'report', report: input.text, answer: input.answer },
     phases: {
+      // Persisted pre-watchdog retry checkpoints must finish silently, without retrying again.
       retry: (task, runtime, context) =>
-        runtime.sleepUntil(
-          task.state.checkpoint.until,
-          { phase: 'deliver', retryRequest: task.state.checkpoint.retryRequest },
-          context,
-        ),
+        runtime.commit(async (tx) => {
+          const state = await tx.doc(Subagents, runtime.conversationId)
+          const action = Object.values(state.actions).find(
+            (candidate) => candidate.reporter === task.id,
+          )!
+          action.status = 'failed'
+          return { status: 'running', checkpoint: { phase: 'report' } }
+        }, context),
       deliver: async (task, runtime, context) => {
         try {
           const child = (await runtime.conversation(task.input.conversationId, context))!
-          const retryRequest = task.state.checkpoint.retryRequest
-          const content =
-            retryRequest !== undefined
-              ? 'Your previous run stopped with a provider error. Continue from where you left off; check what you already did and do not redo it.'
-              : task.input.text
+          const content = task.input.text
           const settled = await (
             await child.submit(
               {
@@ -145,7 +145,7 @@ function createReporter() {
                   },
                 },
                 whenBusy: task.input.steer ? 'steer' : 'followUp',
-                requestId: retryRequest ?? `subagent:${task.id}`,
+                requestId: `subagent:${task.id}`,
               },
               context,
             )
@@ -174,76 +174,14 @@ function createReporter() {
                 },
               }
             }
+            // Provider failures belong to the watchdog. Keep the failed action so recover()
+            // delivers the answer of a later watchdog-retry (or manual continuation).
             if (
               settled.status === 'unanswered' &&
-              (settled.reason === 'model_error' || settled.reason === 'no_model') &&
-              retryRequest === undefined
+              (settled.reason === 'model_error' || settled.reason === 'no_model')
             ) {
-              const failedEntry = settled.entry
-              if (failedEntry === undefined) throw new Error('Provider failure has no input entry')
-              let failureId: EntryId | TaskId | undefined
-              if (settled.reason === 'no_model') {
-                // IDs share one allocation order. Generation follows its placed inputs; choose
-                // their first no-model failure, not a newer run that may already have started.
-                let cursor: Cursor | undefined
-                do {
-                  const page = await tx.scanTasks(
-                    {
-                      conversationId: child.id,
-                      kind: GenerationTask.definition.name,
-                      order: 'ascending',
-                    },
-                    500,
-                    cursor,
-                  )
-                  const generation = page.items.find(
-                    (candidate) =>
-                      candidate.id > failedEntry &&
-                      candidate.state.status === 'terminal' &&
-                      candidate.state.outcome.status === 'failed' &&
-                      (candidate.state.outcome.error.detail as { reason?: string } | undefined)
-                        ?.reason === 'no_model',
-                  )
-                  if (generation) {
-                    failureId = generation.id
-                    break
-                  }
-                  cursor = page.next
-                } while (cursor)
-              }
-              let cursor: Cursor | undefined
-              while (settled.reason === 'model_error') {
-                const page = await tx.scanEntries(
-                  { conversationId: child.id, minEntryId: settled.entry, order: 'ascending' },
-                  500,
-                  cursor,
-                )
-                const failure = page.items.find(
-                  (entry) =>
-                    entry.kind === AssistantEntry.kind &&
-                    entry.model?.[0]?.role === 'assistant' &&
-                    entry.model[0].stopReason === 'error',
-                )
-                if (failure) {
-                  failureId = failure.id
-                  break
-                }
-                cursor = page.next
-                if (cursor === undefined) break
-              }
-              if (failureId === undefined) throw new Error('Provider failure has no run identity')
-              action.retryRequest =
-                settled.reason === 'no_model'
-                  ? `subagent-retry:${child.id}:no-model:${failureId}`
-                  : `subagent-retry:${child.id}:${failureId}`
-              return {
-                status: 'running',
-                checkpoint: {
-                  phase: 'retry',
-                  retryRequest: action.retryRequest,
-                  until: Date.now() + 20_000,
-                },
-              }
+              action.status = 'failed'
+              return { status: 'running', checkpoint: { phase: 'report' } }
             }
             if (settled.status === 'unanswered' && settled.reason !== 'aborted') {
               const failure = settled.reason
@@ -422,11 +360,11 @@ export const actions = {
   }),
   /**
    * The definitions without their instructions and the files that failed to parse, and for the config view the main
-   * conversation's model and tools (a definition may list a subset), where each scope saves, and whether the
-   * project's setup is local, which the project scope needs.
+   * conversation's model and tools (a definition may list a subset), where each scope saves, and the project setup
+   * decision, which the project scope needs.
    */
   definitions: implementAction(DefinitionsAction, async (_args, { host }) => {
-    const { definitions, errors } = await discoverAgents(
+    const { definitions, errors, projectSetup } = await discoverAgents(
       host.ultimateRoot,
       host.projectRoot,
       host.userHome,
@@ -435,9 +373,6 @@ export const actions = {
     const main = await (await host
       .harness()
       .conversation(ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT))!.agent(BACKGROUND_CONTEXT)
-    const local = agentRoots(host.ultimateRoot, host.projectRoot, host.userHome).some(
-      (root) => root.source === 'project',
-    )
     return {
       definitions: definitions.map(({ instructions: _instructions, ...definition }) => definition),
       errors,
@@ -452,7 +387,7 @@ export const actions = {
         user: join(host.userHome, '.ultimate/agents'),
         project: join(host.projectRoot, '.ultimate/agents'),
       },
-      projectLocal: local,
+      projectSetup,
     }
   }),
   /** `{name}`: the definition that applies, its source and path, the raw file, and the scopes with a file of that name. */
@@ -660,8 +595,7 @@ export default function subagents(
     if (
       submission.type !== 'input' ||
       submission.status !== 'done' ||
-      submission.requestId?.startsWith('subagent:') ||
-      submission.requestId?.startsWith('subagent-retry:')
+      submission.requestId?.startsWith('subagent:')
     )
       return
     await host.harness().commit(async (tx) => {
@@ -674,7 +608,7 @@ export default function subagents(
       const childActions = Object.values(state.actions).filter(
         (candidate) => candidate.conversationId === submission.conversationId,
       )
-      // A one-way Board message from the parent has no reporter and no Board reply: without this,
+      // A one-way message from the parent has no reporter and no reply: without this,
       // the answer it starts never reaches the parent, which stays idle. A pending reporter
       // whose input was answered in the same run delivers that answer itself.
       const input = await tx.entry(submission.entry)
@@ -683,18 +617,20 @@ export default function subagents(
         input?.kind === 'board.message' && message?.from === parent && message.reply === false
       for (const action of childActions) {
         if (!messaged || action.status !== undefined) continue
-        for (const request of [`subagent:${action.reporter}`, action.retryRequest ?? []].flat()) {
-          const sibling = await tx.submissionByRequest(submission.conversationId, request)
-          if (sibling?.status === 'done' && sibling.answer === submission.answer) messaged = false
-        }
+        const sibling = await tx.submissionByRequest(
+          submission.conversationId,
+          `subagent:${action.reporter}`,
+        )
+        if (sibling?.status === 'done' && sibling.answer === submission.answer) messaged = false
       }
-      if (!messaged) {
+      // Watchdog continuations also answer failed one-way messages, which have no reporter action.
+      if (!messaged && !submission.requestId?.startsWith('watchdog-retry:')) {
         const action = childActions.at(-1)
         const interrupted = action?.status === 'interrupted'
         if (action?.status !== 'unanswered' && action?.status !== 'failed' && !interrupted) return
         const failed = await tx.submissionByRequest(
           submission.conversationId,
-          action.retryRequest ?? `subagent:${action.reporter}`,
+          `subagent:${action.reporter}`,
         )
         // IDs share one allocation order; an input withdrawn before placement has no entry.
         if (
@@ -1072,35 +1008,55 @@ export default function subagents(
             // Capture identities before cancellation; replay must leave later reuse alone.
             const live = await api.snapshot(LiveDoc, id, context)
             const state = await api.snapshot(Subagents, api.conversationId, context)
-            const target = await api.memo(
+            const watchdogs = await api.commit(async (tx) => {
+              const tasks = []
+              let cursor: Cursor | undefined
+              do {
+                const page = await tx.scanTasks(
+                  { conversationId: api.conversationId, kind: 'watchdog.failure' },
+                  500,
+                  cursor,
+                )
+                tasks.push(
+                  ...page.items.filter(
+                    (task) => (task.input as { conversation?: number }).conversation === id,
+                  ),
+                )
+                cursor = page.next
+              } while (cursor)
+              return tasks.map((task) => ({
+                task: task.id,
+                request: `watchdog-retry:${(task.input as { failedTask: number }).failedTask}`,
+              }))
+            }, context)
+            const saved = await api.memo(
               'stopTarget',
               {
                 run: live?.run?.taskId ?? null,
                 inputs: live?.run?.inputs ?? [],
+                watchdogs,
                 reporters: Object.values(state?.actions ?? {}).flatMap((action) =>
                   action.conversationId === id ? [action.reporter] : [],
                 ),
               },
               context,
             )
+            // A stop interrupted before the watchdog saved no watchdogs; it captured none, so it cancels none.
+            const target = { ...saved, watchdogs: saved.watchdogs ?? [] }
             // Join delivery invocations before inspecting admissions that may have raced stop.
-            for (const reporter of target.reporters) {
+            // Capture watchdog identities too: Stop must not restart the child after its delay.
+            for (const reporter of [
+              ...target.reporters,
+              ...target.watchdogs.map((task) => task.task),
+            ]) {
               await host.harness().abortTask(reporter, context)
               await api.waitForTask(reporter, context)
             }
             const submissions = await api.commit(async (tx) => {
-              const captured = await tx.doc(Subagents, api.conversationId)
-              const retries = Object.values(captured.actions).flatMap((action) =>
-                target.reporters.includes(action.reporter) && action.retryRequest
-                  ? [action.retryRequest]
-                  : [],
-              )
               return Promise.all(
                 [
-                  ...new Set([
-                    ...target.reporters.map((reporter) => `subagent:${reporter}`),
-                    ...retries,
-                  ]),
+                  ...target.reporters.map((reporter) => `subagent:${reporter}`),
+                  ...target.watchdogs.map((task) => task.request),
                 ].map((request) => tx.submissionByRequest(id, request)),
               )
             }, context)

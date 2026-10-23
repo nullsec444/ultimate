@@ -44,6 +44,6 @@ export type HandoffService = {
     ctx: Context,
   ): Promise<number>
 }
-/** The extension point through which the lander messages a standing agent; board provides it. `want` it. */
+/** The extension point through which the lander messages a standing agent; messages provides it. `want` it. */
 export const Handoff = defineApi<HandoffService>()('workspaces.handoff')
 export const tier = 'core'

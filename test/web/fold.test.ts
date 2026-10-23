@@ -3,9 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { Fold, foldKey, writeFold } from '../../web/src/app/fold.tsx'
 
-const state = vi.hoisted(() => ({ chat: false, conversation: 7 }))
+const state = vi.hoisted(() => ({ compact: false, conversation: 7 }))
 vi.mock('../../web/src/sdk/hooks.ts', () => ({
-  useChat: () => (state.chat ? () => true : undefined),
+  useCompact: () => (state.compact ? () => true : undefined),
   useConversation: (select: (conversation: { id: number }) => unknown) =>
     select({ id: state.conversation }),
 }))
@@ -35,23 +35,23 @@ function look(card: string | number, keep?: boolean) {
   }
 }
 
-it('leaves a card whole outside a chat', () => {
-  state.chat = false
+it('leaves a card whole outside compact mode', () => {
+  state.compact = false
   expect(look(12)).toEqual({ fold: 'none', expanded: undefined, card: true })
 })
 
-it('folds a card to its line in a chat, with a button that says it is closed', () => {
-  state.chat = true
+it('folds a card to its line in compact mode, with a button that says it is closed', () => {
+  state.compact = true
   expect(look(12)).toEqual({ fold: 'closed', expanded: 'false', card: false })
 })
 
-it('never folds a card the chat keeps open', () => {
-  state.chat = true
+it('never folds a card kept open, such as a user review', () => {
+  state.compact = true
   expect(look(12, true)).toEqual({ fold: 'none', expanded: undefined, card: true })
 })
 
 it('keeps an opened card open across renders, per conversation and card, storing only the opened ones', () => {
-  state.chat = true
+  state.compact = true
   writeFold(foldKey(7, 'call-1'), true)
   expect(look('call-1')).toEqual({ fold: 'open', expanded: 'true', card: true })
   expect(look('call-2').fold).toBe('closed')

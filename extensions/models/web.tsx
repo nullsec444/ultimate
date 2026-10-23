@@ -17,7 +17,7 @@ import {
 import type { EntryRecord } from '@/sdk'
 import { LoginDialog } from './login.tsx'
 import { ModelPicker } from './picker.tsx'
-import { dialogs, nextThinking, openLogin, openPicker, useCurrentModel } from './state.tsx'
+import { nextThinking, openLogin, openPicker, thinkingDialog, useCurrentModel } from './state.tsx'
 import type { ThinkingLevel } from './state.tsx'
 import { switchAt } from './switches.ts'
 
@@ -57,8 +57,8 @@ function ModelButton() {
 }
 
 function ThinkingButton() {
-  const { model, thinking, loading } = useCurrentModel()
-  const [open, setOpen] = useDialog(dialogs.thinking)
+  const { id, model, thinking, loading } = useCurrentModel()
+  const [open, setOpen] = useDialog(thinkingDialog(id))
   const [error, setError] = useState<string>()
   if (loading)
     return (
@@ -79,7 +79,7 @@ function ThinkingButton() {
   const current = thinking ?? 'off'
   const choose = (level: ThinkingLevel) => {
     setError(undefined)
-    api.configure({ thinkingLevel: level }).then(
+    api.configure({ thinkingLevel: level }, id).then(
       () => setOpen(false),
       (failure: unknown) => setError(errorMessage(failure)),
     )
@@ -162,21 +162,22 @@ export default defineWebExtension({
       id: 'model.pick',
       title: 'Pick a model',
       run: (context) => {
-        if (!getConversation().loading) openPicker(context)
+        if (!getConversation(context.conversationId).loading) openPicker(context)
       },
     },
     {
       id: 'model.thinking',
       title: 'Set the thinking level',
-      run: (context) => context.open(dialogs.thinking),
+      run: (context) => context.open(thinkingDialog(context.conversationId)),
     },
     {
       id: 'model.thinking.cycle',
       title: 'Cycle the thinking level',
       keys: 'shift+tab',
       whileTyping: true,
-      run: async () => {
-        const { agent, loading } = getConversation()
+      // Shift+Tab in a side chat's composer cycles the side chat's level, not main's.
+      run: async (context) => {
+        const { agent, loading } = getConversation(context.conversationId)
         if (loading) return undefined
         const ref = agent.model
         const thinking = agent.thinkingLevel
@@ -184,7 +185,10 @@ export default defineWebExtension({
           (candidate) => candidate.provider === ref?.provider && candidate.id === ref.modelId,
         )
         if (!model?.reasoning) return undefined
-        return api.configure({ thinkingLevel: nextThinking(thinking, model) })
+        return api.configure(
+          { thinkingLevel: nextThinking(thinking, model) },
+          context.conversationId,
+        )
       },
     },
     {

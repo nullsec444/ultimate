@@ -229,7 +229,7 @@ function Details({ extension }: { extension: ExtensionInfo }) {
         ['inbox', web?.inbox],
         ['composer', web?.composer],
         ['links', web?.link],
-        ['chat', web?.chat],
+        ['compact', web?.compact],
         ['intro', web?.intro],
       ] as const
     )

@@ -228,7 +228,15 @@ export default defineWebExtension({
   },
   slots: { overlay: [Onboarding], 'statusline.right': [NoGit, Undecided] },
   provides: [provide(EmptyRoot, ({ id, dock }) => <Familiarize dock={dock} id={id} />)],
-  panels: [{ id: 'extensions', title: 'Extensions', icon: BlocksIcon, component: ExtensionsPanel }],
+  panels: [
+    {
+      id: 'extensions',
+      title: 'Extensions',
+      icon: BlocksIcon,
+      component: ExtensionsPanel,
+      order: 8,
+    },
+  ],
   commands: [
     {
       id: 'onboarding.extensions',

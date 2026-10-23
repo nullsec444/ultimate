@@ -2,7 +2,7 @@ import { cn } from 'cn'
 import { ChevronRightIcon } from 'lucide-react'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { useChat, useConversation } from '../sdk/hooks.ts'
+import { useCompact, useConversation } from '../sdk/hooks.ts'
 
 /** Where a card's expand state lives: `ultimate.fold.<conversation>.<card>`, the card an entry id or a tool call id. */
 export const foldKey = (conversation: number | undefined, card: string | number) =>
@@ -16,11 +16,11 @@ export function writeFold(key: string, open: boolean) {
 }
 
 /**
- * Card `card` of the shown conversation: in a chat it `folds` to one line, closed until the reader opens it, and stays
+ * Card `card` of the shown conversation: in compact mode it `folds` to one line, closed until the reader opens it, and stays
  * open across reloads; elsewhere it never folds and is always open.
  */
 export function useFold(card: string | number) {
-  const folds = !!useChat()
+  const folds = !!useCompact()
   const key = foldKey(
     useConversation((conversation) => conversation.id),
     card,
@@ -38,8 +38,8 @@ export function useFold(card: string | number) {
 }
 
 /**
- * A card that folds in a chat to `summary`, one quiet line like a folded run of work: what it is, who, its status. A
- * click opens the full card beneath it. Outside a chat, or when it is the user's (`keep`), it renders the card alone.
+ * A card that folds in compact mode to `summary`, one quiet line like a folded run of work: what it is, who, its status. A
+ * click opens the full card beneath it. Outside compact mode, or when `keep`, it renders the card alone.
  */
 export function Fold({
   card,

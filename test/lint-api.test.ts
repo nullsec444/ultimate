@@ -52,8 +52,8 @@ const api = `/**
 import type { Context } from '@earendil-works/chord'
 import { defineDoc } from '@earendil-works/pi-durable'
 import { defineApi } from '../../shared/extension-api.ts'
-import type { BoardMessage } from '../board/api.ts'
-import { Board } from '../board/api.ts'
+import type { Message } from '../messages/api.ts'
+import { Messages } from '../messages/api.ts'
 import type { echo } from './server.ts'
 
 type Helper = ReturnType<typeof echo>
@@ -62,7 +62,7 @@ export type EchoService = {
   /** Repeat \`text\`; use it to test a round trip. */
   echo(text: string, ctx: Context): Promise<string>
   /** The last message echoed. */
-  last: () => BoardMessage | undefined
+  last: () => Message | undefined
 }
 /** The echo service; \`want\` it. */
 export const EchoApi = defineApi<EchoService>()('echo')
@@ -79,7 +79,7 @@ it('accepts an api.ts of documented contracts and rejects runtime code, node imp
 
   const bad = `import { readFile } from 'node:fs/promises'
 import { echo } from './server.ts'
-import { Board } from '../board/server.ts'
+import { Messages } from '../messages/server.ts'
 import { defineApi } from '../../shared/extension-api.ts'
 export interface EchoService {
   echo(text: string): string
@@ -130,7 +130,7 @@ import type { JsonValue } from '@earendil-works/chord'
 import { actionRef, docRef } from '../../shared/extension-api.ts'
 import { defineEvent } from '../../shared/events.ts'
 import type { ProviderHealth } from '../../shared/protocol.ts'
-import type { BoardData } from '../board/refs.ts'
+import type { MessagesData } from '../messages/refs.ts'
 import type { EchoRow } from './types.ts'
 
 type Texts = { texts: string[] }
@@ -155,7 +155,7 @@ import { defineDoc } from '@earendil-works/pi-durable'
 import type { echo } from './server.ts'
 import type { git } from '../../lib/git.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
-import type { BoardService } from '../board/api.ts'
+import type { MessagesService } from '../messages/api.ts'
 import { docRef } from '../../shared/extension-api.ts'
 export const LogDoc = docRef<{ texts: string[] }>('echo.log')
 export const limit = 3
@@ -172,7 +172,7 @@ export const limit = 3
     'refs.ts holds only contracts: imports, `export const X = docRef/actionRef/defineEvent(...)` and types.',
   ])
   expect(
-    lint('api-naming', 'extensions/echo/refs.ts', "export const A = actionRef('board', 'send')"),
+    lint('api-naming', 'extensions/echo/refs.ts', "export const A = actionRef('messages', 'send')"),
   ).toEqual(["extensions/echo refers only to its own actions: actionRef('echo', name)."])
 })
 
@@ -208,17 +208,28 @@ export const G = defineApi<S>()('echo.')`
   ])
 })
 
+it('keeps only the existing persisted event names for messages', () => {
+  const source = `export const A = defineEvent('board.asked')
+export const B = defineEvent('board.sent')
+export const C = defineEvent('board.triaged')
+export const D = defineEvent('board.new')`
+  expect(lint('api-naming', 'extensions/messages/refs.ts', source)).toEqual([
+    "Events of extensions/messages are named 'messages.<event>'.",
+  ])
+  expect(lint('api-naming', 'extensions/echo/refs.ts', source)).toHaveLength(4)
+})
+
 it("allows another extension's api.ts and type imports, and rejects its other runtime files", () => {
-  const source = `import { BoardApi } from '../board/api.ts'
-import type { BoardService } from '../board/server.ts'
+  const source = `import { MessagesApi } from '../messages/api.ts'
+import type { MessagesService } from '../messages/server.ts'
 import { git } from '../../lib/git.ts'
 import { helper } from './helper.ts'
-import { Board } from '../board/server.ts'
+import { Messages } from '../messages/server.ts'
 import { type Standing } from '../subagents/server.ts'
 export { roots } from '../lineage/roots.ts'
 const later = () => import('../questions/server.ts')`
   expect(lint('api-only-imports', 'extensions/echo/server.ts', source)).toEqual([
-    'echo imports board/server.ts at runtime; reach board through its api.ts (a service, document or event token), import types with `import type`, or move a pure helper to lib/.',
+    'echo imports messages/server.ts at runtime; reach messages through its api.ts (a service, document or event token), import types with `import type`, or move a pure helper to lib/.',
     'echo imports subagents/server.ts at runtime; reach subagents through its api.ts (a service, document or event token), import types with `import type`, or move a pure helper to lib/.',
     'echo imports lineage/roots.ts at runtime; reach lineage through its api.ts (a service, document or event token), import types with `import type`, or move a pure helper to lib/.',
     'echo imports questions/server.ts at runtime; reach questions through its api.ts (a service, document or event token), import types with `import type`, or move a pure helper to lib/.',
@@ -233,17 +244,17 @@ const browserMessage = (file: string) =>
 it("allows browser code another extension's ui.tsx at runtime and its api.ts or refs.ts only for types", () => {
   const source = `import { ConversationRef, OverviewDoc } from '../conversations/ui.tsx'
 import type { WorkspaceService } from '../workspaces/api.ts'
-import type { BoardData } from '../board/refs.ts'
+import type { MessagesData } from '../messages/refs.ts'
 import type { Plan } from '../plan/web.tsx'
 import { LogDoc } from './refs.ts'
 import { useWorkspaces } from '../workspaces/data.tsx'
 import { WorkspacesApi } from '../workspaces/api.ts'
-import { BoardDoc } from '../board/refs.ts'
+import { MessagesDoc } from '../messages/refs.ts'
 export { TaskChip } from '../plan/chip.tsx'`
   expect(lint('api-only-imports', 'extensions/echo/web.tsx', source)).toEqual([
     browserMessage('workspaces/data.tsx'),
     browserMessage('workspaces/api.ts'),
-    browserMessage('board/refs.ts'),
+    browserMessage('messages/refs.ts'),
     browserMessage('plan/chip.tsx'),
   ])
 })
@@ -252,9 +263,9 @@ const coreMessage = (optional: string) =>
   `conversations is core tier and imports optional ${optional}; declare a point in conversations that ${optional} provides, or react to an event.`
 
 it('keeps a core-tier extension to core-tier imports, runtime and type alike, and leaves optional ones free', () => {
-  // The tiers come from the repository's api.ts files: conversations, lineage and board are core; phase and plan not.
+  // The tiers come from the repository's api.ts files: conversations, lineage and messages are core; phase and plan not.
   const source = `import { LineageApi } from '../lineage/api.ts'
-import type { BoardData } from '../board/refs.ts'
+import type { MessagesData } from '../messages/refs.ts'
 import { usePhase } from '../phase/ui.tsx'
 import type { TaskLink } from '../plan/refs.ts'
 export { TaskChip } from '../plan/ui.tsx'

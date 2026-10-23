@@ -13,6 +13,7 @@ import {
 } from '../extensions/lineage/memory.ts'
 import { Seen } from '../extensions/lineage/catchup.ts'
 import { abstract, Tally } from '../extensions/lineage/server.ts'
+import { Roots } from '../extensions/lineage/api.ts'
 import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import { Standing } from '../extensions/subagents/api.ts'
 import { SubmissionLanded } from '../extensions/workspaces/api.ts'
@@ -183,12 +184,13 @@ it.concurrent('starts a branch from the memory brief, and without memories from 
   const briefed = await branch(server, 'Briefed branch')
   const view = await briefed.conversation.context(context)
   const said = view.messages.filter((message) => message.role !== 'system')
-  // The model context begins at the brief, then the prompt: none of the tally.
+  // The model context begins at the brief, then the identity note and prompt: none of the tally.
   expect(textOf(said[0].content)).toMatch(
     /^<project_memory root="#1">\npnpm \[fact\] — Use pnpm for everything \(updated 2026-10-21\)\n<\/project_memory>\n/,
   )
   expect(textOf(said[0].content)).toContain('ultimate.entries(1)')
-  expect(textOf(said[1].content)).toBe('Briefed branch')
+  expect(textOf(said[1].content)).toBe(`You are conversation #${briefed.id}.`)
+  expect(textOf(said[2].content)).toBe('Briefed branch')
   expect(JSON.stringify(view.messages)).not.toContain(marker)
   expect(view.entries[0]).toMatchObject({ kind: 'pi.reset' })
   // Catch-up starts after the root's tip at the fork, not from the tally's start.
@@ -264,14 +266,16 @@ it.concurrent('reads memories with memory; only @ultimate writes them with remem
     args: { name: 'ultimate' },
   })
   const ultimate = standing.data.result as number
+  // @ultimate is in no tree: without `root` it writes and reads the project's only root.
   expect(
     await run(
       server,
       'remember',
-      { root: 1, ops: [add('pnpm'), { ...add('lint'), source: '#2/3' }] },
+      { ops: [add('pnpm'), { ...add('lint'), source: '#2/3' }] },
       ultimate,
     ),
   ).toBe("Added pnpm, lint in #1's memory.")
+  expect(await run(server, 'memory', {}, ultimate)).toMatch(/^#1's memory \(2\):/)
   await expect(
     run(
       server,
@@ -294,6 +298,24 @@ it.concurrent('reads memories with memory; only @ultimate writes them with remem
   })
   expect(forgot.data.result).toEqual({ summary: "deleted lint in #1's memory." })
   expect(Object.keys(await memories(server))).toEqual(['pnpm'])
+
+  // With no root or several, a caller outside any tree has to name one.
+  const setRoots = (roots: number[]) =>
+    server.harness.commit(async (tx) => {
+      ;(await tx.doc(Roots, ROOT_CONVERSATION_ID)).roots = roots
+    }, context)
+  await setRoots([1, id])
+  await expect(run(server, 'memory', {}, ultimate)).rejects.toThrow(
+    `#${ultimate} is in no tree and the project has several roots; name one of #1, #${id}`,
+  )
+  await expect(run(server, 'remember', { ops: [add('x')] }, ultimate)).rejects.toThrow(
+    'several roots',
+  )
+  expect(await run(server, 'memory', { root: 1 }, ultimate)).toMatch(/^#1's memory \(1\):/)
+  await setRoots([])
+  await expect(run(server, 'memory', {}, ultimate)).rejects.toThrow(
+    `#${ultimate} is in no tree and the project has no root yet`,
+  )
 })
 
 const landing = (submission: string, conversationId: number): LandedData => ({

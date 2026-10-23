@@ -79,7 +79,8 @@ it('tells @ultimate the open list only when it changed', async () => {
 
 it("keeps the todo tool to @ultimate and the note to @ultimate's inputs", async () => {
   const { tx } = fakeTx()
-  const extension = todosExtension({} as ExtensionHost)
+  // No side-chat extension installed: every caller acts as itself.
+  const extension = todosExtension({ doc: () => undefined } as unknown as ExtensionHost)
   const tool = extension.tools!.find((candidate) => candidate.name === 'todo')!
   const run = (conversationId: number, args: object) =>
     tool.execute(

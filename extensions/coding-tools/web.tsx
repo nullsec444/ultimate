@@ -258,10 +258,11 @@ function BashSummary({ steps }: { steps: BashStep[] }) {
 
 /** Cancel a running bash call: its command is killed and the model gets the output so far. */
 function CancelCall({ callId }: { callId: string }) {
+  const conversationId = useConversation((conversation) => conversation.id)
   const [sent, setSent] = useState(false)
   const cancel = () => {
     setSent(true)
-    api.action(CancelAction, { callId }).catch((error: unknown) => {
+    api.action(CancelAction, { callId }, { conversationId }).catch((error: unknown) => {
       setSent(false)
       throw error
     })

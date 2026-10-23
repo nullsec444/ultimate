@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import { Type } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
+import { ProjectTrustStore } from '@earendil-works/pi-coding-agent'
 import type { ToolExecutionResult } from '@earendil-works/pi-durable'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -18,9 +19,6 @@ import {
 import { context } from '../server/harness.ts'
 import { Store, SummaryDoc } from '../extensions/codemode/server.ts'
 import { Summarized } from '../extensions/codemode/refs.ts'
-import planExtension from '../extensions/plan/server.ts'
-import type { ExtensionHost } from '../server/extensions.ts'
-import { Metadata } from '../server/metadata.ts'
 import type { CallTree } from '../server/trace.ts'
 
 const servers: Awaited<ReturnType<typeof createServer>>[] = []
@@ -40,7 +38,6 @@ async function fixture() {
   await cp(resolve('extensions/coding-tools'), join(ultimateRoot, 'extensions/coding-tools'), {
     recursive: true,
   })
-  await cp(resolve('extensions/faux'), join(ultimateRoot, 'extensions/faux'), { recursive: true })
   await copyApis(ultimateRoot)
   await mkdir(join(ultimateRoot, 'web'), { recursive: true })
   await linkDependencies(ultimateRoot)
@@ -67,6 +64,7 @@ async function fixture() {
     port: 0,
   }
   const server = await createServer(options)
+  await writeFile(join(server.host.home, 'demo.txt'), 'before\n')
   servers.push(server)
   expect(
     server.extensions.info().find((extension) => extension.name === 'codemode')?.server?.error,
@@ -361,23 +359,20 @@ it("returns workspaces' refs.ts with its api.ts, so agents see its actions and e
   expect(source).toContain("actionRef<{ id: number }, WorkspaceInfo | null>('workspaces', 'info')")
 })
 
-it('reserves trust and secret writes for the UI while allowing normal actions', async () => {
+it('reserves trust writes for the UI', async () => {
   const { server, options } = await fixture()
   await mkdir(join(options.ultimateRoot, 'server'), { recursive: true })
   await cp(resolve('server/lock.ts'), join(options.ultimateRoot, 'server/lock.ts'))
-  // Onboarding and secrets use the shared helpers in lib/.
+  // Onboarding uses the shared helpers in lib/.
   await cp(resolve('lib'), join(options.ultimateRoot, 'lib'), { recursive: true })
-  const probes = { onboarding: 'decide', secrets: 'set', faux: 'seedMemory' } as const
+  const probes = { onboarding: 'decide' } as const
   for (const [name, probe] of Object.entries(probes)) {
     await cp(resolve(`extensions/${name}`), join(options.ultimateRoot, `extensions/${name}`), {
       recursive: true,
     })
     await until(() => !!server.extensions.action(name, probe))
   }
-  for (const [extension, action, args] of [
-    ['onboarding', 'decide', { local: true }],
-    ['secrets', 'set', { name: 'TEST_KEY', value: 'test-value' }],
-  ] as const) {
+  for (const [extension, action, args] of [['onboarding', 'decide', { local: true }]] as const) {
     const denied = await run(
       server,
       `return await ultimate.action('${extension}', '${action}', ${JSON.stringify(args)});`,
@@ -387,15 +382,6 @@ it('reserves trust and secret writes for the UI while allowing normal actions', 
     const response = await post(server, `/api/extensions/${extension}/actions/${action}`, { args })
     expect(response.status).toBe(200)
   }
-  // seedMemory writes memory past @ultimate's check; lineage isn't loaded here, so only the refusal is checked.
-  const seed = await run(server, `return await ultimate.action('faux', 'seedMemory', {});`)
-  expect(seed.data.isError).toBe(true)
-  expect(seed.text).toContain('faux/seedMemory is a user-only action')
-  const normal = await run(server, `return await ultimate.action('secrets', 'list');`)
-  expect(normal.data.isError).not.toBe(true)
-  expect(normal.data.details.value).toEqual([
-    expect.objectContaining({ name: 'TEST_KEY', set: true }),
-  ])
 })
 
 it('logs ultimate helper calls and labels a one-call script by its call id, with an event', async () => {
@@ -461,28 +447,6 @@ it('composes read and bash with private nested results and final JSON details', 
       ],
     }),
   )
-  server.host.registry.install(
-    planExtension({
-      metadata: Metadata,
-      onOpen: () => {},
-    } as unknown as ExtensionHost),
-  )
-  // #159728 extended task descriptions from a script; a text result made `shown.description` undefined and wiped them.
-  const extended = await run(
-    server,
-    `const epic = await tools.plan({action:'create', title:'E', body:'b'});
-     const task = await tools.plan({action:'add', epic: epic.key, title:'T', role:'worker', description:'draft'});
-     const shown = await tools.plan({action:'show', key: task.key});
-     await tools.plan({action:'update', key: task.key, description: shown.description + '\\nmore'});
-     await tools.plan({action:'update', key: task.key, status:'todo', child: 7});
-     return await tools.plan({action:'show', key: task.key});`,
-  )
-  expect(extended.data.details.value).toMatchObject({
-    description: 'draft\nmore',
-    status: 'todo',
-    child: 7,
-    title: 'T',
-  })
   const structured = await run(server, `return await tools.structured({answer:42});`)
   expect(structured.data.details.value).toEqual({ answer: 42 })
   const invalid = await run(server, `await tools.structured({answer:'wrong'});`)
@@ -602,6 +566,28 @@ it('lists conversations with their title and cwd, since the prompt no longer doe
     title: 'Old work',
     concluded: true,
   })
+})
+
+it("lists project agents once the project's setup is trusted, and says when it is not", async () => {
+  const { server, options } = await fixture()
+  await mkdir(join(options.projectRoot, '.ultimate/agents'), { recursive: true })
+  await writeFile(
+    join(options.projectRoot, '.ultimate/agents/writer.md'),
+    '---\nname: writer\ndescription: Polishes posts\n---\n\nPolish.\n',
+  )
+  const agents = async () => {
+    const result = await run(
+      server,
+      `const a = await ultimate.agents(); return { setup: a.projectSetup, project: a.definitions.filter((d) => d.source === 'project').map((d) => d.name) }`,
+    )
+    expect(result.data.isError).toBe(false)
+    return result.data.details.value
+  }
+  // The faux fixture trusts its project; declining it hides the project's definitions and says why.
+  const trust = new ProjectTrustStore(join(options.userHome, '.ultimate'))
+  expect(await agents()).toEqual({ setup: 'trusted', project: ['writer'] })
+  trust.set(options.projectRoot, false)
+  expect(await agents()).toEqual({ setup: 'declined', project: [] })
 })
 
 it('reads stored history and documents from before a reset', async () => {

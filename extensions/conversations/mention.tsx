@@ -24,7 +24,7 @@ export function MentionLink({
   const open = (event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    if (entry !== undefined) events.emit('board:open', { conversation: conversation.id, entry })
+    if (entry !== undefined) events.emit('messages:open', { conversation: conversation.id, entry })
     showSurface('agent')
     switchConversation(conversation.id)
   }

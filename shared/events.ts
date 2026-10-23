@@ -61,7 +61,7 @@ export type Device = { device: string; login?: string }
 
 /**
  * The user gave conversation `conversation` an input: typed (`prompt`, or `steer`/`follow-up` while it ran), an answer
- * or dismissal of its question (`message`, the Board reply), or a review. `entry` is its transcript entry once placed;
+ * or dismissal of its question (`message`, the reply), or a review. `entry` is its transcript entry once placed;
  * a queued one names its `submission`, whose record gets the entry. Never the text: `length` counts its characters.
  */
 export const UserInputEvent = defineEvent<

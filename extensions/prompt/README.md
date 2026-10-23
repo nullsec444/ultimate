@@ -8,7 +8,7 @@ conversation records its first build silently, and a fork starts from its parent
 
 The primary agent (@ultimate) also follows its instructions there. When its definition's
 text differs from the conversation's, the hook re-applies it, so a typed input picks up an updated `agents/ultimate.md`
-as Board deliveries already did. The document keeps a hash of each project context file (`AGENTS.md`) and of the
+as Messages deliveries already did. The document keeps a hash of each project context file (`AGENTS.md`) and of the
 clone's `AGENTS.md`, `docs/*.md` and `agents/*.md`, and the note names the definition re-applied and the files changed
 since the last run ("Instructions changed: … · Docs changed: …"). Other agents keep the instructions they started with.
 

@@ -8,8 +8,8 @@ export type Question = {
   ref?: string
   options?: { label: string; detail?: string; recommended?: boolean; key?: string }[]
 }
-/** The root's `questions.board` document: extracted questions by Board message id. */
-export type QuestionsBoard = {
+/** The root's `questions.board` document: extracted questions by message id. */
+export type MessageQuestionsData = {
   requested: number[]
   asked: Record<string, Question[]>
 }

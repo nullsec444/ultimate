@@ -1,8 +1,10 @@
 The Agent surface's sidebar and the title bar's @ultimate button: talk to @ultimate, see each root's tree with what
 is in flight and what landed, and switch, rename, compact, conclude and resume conversations. It is the UI that brings
 the core together, so it sits at the top of the core tier: it reads conversations, workspaces, subagents, lineage and
-board, and shows what optional extensions provide through points (`conversations/ui.tsx`: a working phase, a plan task).
+messages, and shows what optional extensions provide through points (`conversations/ui.tsx`: a working phase, a plan task).
 Its UI state keeps the keys it had as part of conversations (`ext.conversations.*`).
+Rows under @ultimate's come from the `sidebar.under-ultimate` point (`ui.tsx`; side-chat fills it with open side
+chats). Conversations labelled `side-chat` are left out of every other list (`listed.ts`).
 
 Every standing agent's row leads with its mark (conversations' `AgentMark`): a small tinted tile with a glyph — a brand
 `U` for @ultimate (the title bar's wordmark), a green merge for the lander,
@@ -11,52 +13,58 @@ waits on you). Then a fixed display name (`Ultimate`, `Lander`, else the name ca
 `@name` small and muted. The same mark sits in the title bar's button and before standing senders in chat bubbles.
 
 @ultimate has its own section at the very top: its row shows `working`, `idle` or an amber
-`N waiting on you` (reply-enabled board messages to you still waiting on your answer, plus one for its current final
+`N waiting on you` (reply-enabled messages to you still waiting on your answer, plus one for its current final
 answer when that asks you questions), and the age of its latest
 message. Clicking it opens @ultimate on the Agent surface through `subagents.standing {name: 'ultimate'}`, also before
 its conversation exists. Below it, an Agents group lists the lander first, then the other ownerless top-level standing
 agents (label `agent`) by ID. These rows are never concluded or hidden and show no summary or feature:
 @lander shows its state (`landing`, `fixing`, `diagnosing`, `working` or `idle`), `queue N` while submissions wait,
-its latest landing's short sha (green) and feature tag (truncated, title on hover), and its age; other agents show `working` or `idle` and the age. Their menu only
+and the age of its latest landing (what landed is its Landed section's first row); other agents show `working` or `idle` and the age. Their menu only
 compacts the context; they are never renamed, cleared or concluded.
 
 The title bar's `@ultimate` button (`titlebar.left`, beside the surfaces, also on phones) opens @ultimate the same way
 from every surface. Its mark's dot pulses while @ultimate works and is amber while questions wait on you, with their count.
 
-Between the Agents group and the roots, the `sidebar.top` slot shows background work that optional extensions
-contribute without the sidebar importing them: subscriptions' Watching section and automations' Scheduled section,
-each a small heading with a count bubble, up to five compact rows with `+N more`, and its own bottom rule. Each
-section hides while it has nothing active.
+Every section of the sidebar folds the same way (`Section`, `section.tsx`): a quiet mono heading with a chevron and
+a count bubble, open by default, its fold state kept per section in `ext.conversations.closedSections`; the Watching
+and Scheduled sections of the `sidebar.top` slot draw the same heading. Top to bottom:
 
-The sidebar lists the roots below the agents (lineage's `useRoots()`); trees sort by their newest input anywhere in
-them. A root's row (`RootRow`, `root.tsx`) is a small dashboard of its tree, not one of its conversations: a scroll
-mark (with a pulsing dot while it compacts), the fixed name `Project context` with `#id` small (its summary title only
-on hover, since it described the root's history before it held a context) and the size of its context. Below it:
-
-- **In flight · N**: the tree's open branches, newest input first. A branch is open until it is concluded or it landed
-  after its latest input (a landed branch that gets new work is open again). Each shows its title, its feature tag,
-  a state (`submitted` or `landing` while the lander has it, the working phase while it works, amber `awaiting @ultimate`
-  while a reply-enabled message it sent @ultimate is open, red `failed`, else `idle`) and its age; clicking opens it.
-  A branch with a worktree also shows its work so far on a quiet line below (workspaces' `progress`): `N commits` not
-  yet on its target, opening `branch:<name>` in Review, and `+ N edits` (uncommitted changed paths), opening
+- **@ultimate**, then the **Agents** group: the lander first, with its **Landed · N** section right under its row,
+  aligned with the other sections, then other standing agents.
+- **Landed**: the latest landings of every root (lineage's `recent {id, types: ['landed'], limit: 20}`), newest
+  first, all landings of one feature folded into one row: its feature tag (its title when it has none), `×N` when it
+  landed more than once, the commits summed, and the age of the newest. Clicking the row opens the branch that landed
+  it (the landing's `from`), else the root at its landing note. The commit count opens the range in Review when the
+  group's landings follow each other on the target (else plain), with the DiffsHub compare as a small ↗ for a single
+  landing (`CommitCount` from workspaces). The first five show; `+N more` unfolds the rest
+  (`ext.conversations.landedAll`). Landings are read again whenever a root's token count changes, which every new
+  entry does.
+- **Memory**: one row per root (`MemoryRow`, `root.tsx`) with a brain mark, the brief's size (what every new branch
+  starts from; the whole context's while it has no memories) and its memories counted by kind (`4 decisions · 5 facts
+· 3 lessons`). Clicking it opens lineage's **Memory** panel, grouped into decisions, facts and lessons (empty until
+  @ultimate remembers something). Below it, a quiet **History #id** line opens the root's tally, the
+  browsable history (every branch, abstract and landing), whose footer offers Compact (lineage `compact {id}`) and
+  Talk to @ultimate. The row has no menu; a root is never renamed, cleared or concluded here.
+- The `sidebar.top` slot: background work that optional extensions contribute without the sidebar importing them,
+  subscriptions' **Watching** and automations' **Scheduled**, each up to five compact rows with `+N more`, and its own
+  bottom rule. Each hides while it has nothing active.
+- **In flight · N** (`InFlight`, `root.tsx`): every open branch of every tree, newest input first. A branch is open
+  until it is concluded or it landed after its latest input (the lander's results, or a root landing note from it;
+  a landed branch that gets new work is open again). Each shows its title, its feature tag, a state (`submitted` or
+  `landing` while the lander has it, the working phase while it works, amber `awaiting @ultimate` while a
+  reply-enabled message it sent @ultimate is open, red `failed`, else `idle`) and its age; clicking opens it, and its `…` menu is the same as an Earlier row's (Rename, Compact
+  context, Conclude with the pending-work check). A branch
+  with a worktree also shows its work so far on a quiet line below (workspaces' `progress`): `N commits` not yet on
+  its target, opening `branch:<name>` in Review, and `+ N edits` (uncommitted changed paths), opening
   `uncommitted:<id>`. A fresh worktree, or a branch without one, shows nothing. All rows are read in one call, again
   only when an agent commits (`coding-tools.committed`), a worktree's state changes or a branch's run starts or ends;
-  never on a timer.
-- **Landed**: the last three landings from lineage's `recent {id, types: ['landed']}`, as the shipped feature's tag
-  (its title when it has none, the full title on hover) and a commit count opening the range in Review, with the
-  DiffsHub compare as a small ↗ (`CommitCount` from workspaces; without review the count links DiffsHub, and no link
-  without a GitHub `origin`), with the age. Clicking the feature opens the root
-  at that landing note. `N more` unfolds up to ten; the fold state is kept in `ext.conversations.landingsOpen`.
+  never on a timer. Its subagents follow, one line each at any depth (`SubagentLine`, `rows.tsx`): their mark, plan
+  chip, role and `#id`, and their state word, with the latest activity or plan task on hover.
 
-Notes, new branches and compactions stay on the root's page. The row shows no feature or summary, and the
-summary below the tree is not shown for it. Its menu offers Compact context (lineage `compact {id}`, only for a root
-that has a context) and Talk to @ultimate; a root is never renamed, cleared or concluded here. Landings refetch
-whenever the root's token count changes, which every new entry does. The full branch tree folds under
-`All branches · N`, closed by default (`ext.conversations.expandedRoots`), since In flight already lists open work.
-Branches nest under their source (`branchOf.conversationId`), with a hairline guide and one indent per depth;
-siblings sort by latest input. Older conversations that are neither roots nor branches live in the collapsed
-"Earlier · N" group, above "Concluded · N". Isolated rows carry a short `#<conversationId>` badge;
-Workspace details in their menu opens the Workspaces panel. The shown row is highlighted, also while one of its
+Landed branches and older conversations that are neither roots nor branches live in the collapsed "Earlier · N" group,
+above "Concluded · N". There, branches nest under their source (`branchOf.conversationId`), with a hairline guide
+and one indent per depth; siblings sort by latest input. Isolated rows carry a short `#<conversationId>` badge;
+Workspace details in their menu opens Info's Workspace section. The shown row is highlighted, also while one of its
 subagents is shown. Each row has its title (or `#id` for shared rows, `Untitled conversation` for isolated rows)
 and the time of its latest message (`now`, `5m`, `3h`, `2d`,
 then a date). Its leading mark pulses while it or any of its subagents works, and is solid when an answer arrived
@@ -64,12 +72,12 @@ since you last looked at it. Actual foreground tasks and live run boundaries det
 lagging title/timestamp list.
 A solid purple dot means an unread reply, not ongoing work; only the pulsing dot means working.
 
-Every row reads one state from board's `conversationState`, the same the System surface shows: working;
+Every row reads one state from messages’ `conversationState`, the same the System surface shows: working;
 **waits on you** (only the primary agent, @ultimate: an open question to the user);
 **awaiting @ultimate** (amber question mark, never on a subagent: an open reply-expected message the conversation sent
 the primary agent); **done** (green check, subagents only: it answered, and its answer went to its parent);
 **failed** (red cross: its latest input ended unanswered); else idle. Working includes queued input. Standing rows,
-the root's In flight list (after the lander's submitted/landing) and the System lanes show the same state. Nothing
+the In flight list (after the lander's submitted/landing) and the System lanes show the same state. Nothing
 here is a model's opinion of a reply.
 
 A conversation with genuinely owned children has an expandable Sub-agents group; a listed root shows none, since a
@@ -84,7 +92,7 @@ invented delegation edges. Expansion is persisted in `ext.conversations.expanded
 header's Workspaces button opens the read-only checkout panel.
 Conclude releases clean, fully landed checkouts, including owned subagent checkouts. Uncommitted files,
 unlanded commits, and busy checkouts are kept.
-The Workspaces panel shows checkouts read-only.
+Info's Workspace section shows checkouts read-only.
 
 On hover or focus, a row's `…` menu offers Rename (inline; also on double-click; Enter or leaving the field saves,
 Escape cancels, and after either key focus returns to the row), Compact context (keeps the gist and frees context;
@@ -92,7 +100,7 @@ disabled while the conversation works), and Conclude. Before concluding, the UI 
 When a conversation or its subagents have uncommitted files or unlanded commits, a confirmation dialog names the
 work and explains that its checkout is kept until the work lands or is discarded. Otherwise it concludes at once.
 Concluded rows and their branches/subagents sit in a collapsed "Concluded · N" group at the bottom.
-Resume brings them back. Any input that starts a run in a concluded conversation (typed input, a board message or
+Resume brings them back. Any input that starts a run in a concluded conversation (typed input, a message or
 reply, a subagent report, an automation's message) resumes it and its concluded ancestors in the commit that places
 the input, through the patched `GenerationTask.beforeInput` hook. Notes and other writes start no run and resume nothing.
 Concluding the shown subtree shows another live conversation when one exists.

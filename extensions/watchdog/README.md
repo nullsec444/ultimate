@@ -1,0 +1,7 @@
+Reports failed runs to their subagent owner or @ultimate, and reminds @ultimate about open branches idle for more than two hours.
+
+Provider errors classified as temporary by Pi, including Claude Code's “not logged in” error, get one continuation after 60 seconds. If someone has resumed the conversation and it is busy at that deadline, watchdog leaves it alone. `subagent stop` cancels that child's pending watchdog task and withdraws any queued retry input, using the stop handler's captured identities so replay leaves later work alone. A failed retry is never retried again. Persistent and non-temporary errors become a `watchdog.failure` card with the conversation, title, error, last tool step and any login hint. @ultimate's own failure raises a notice instead. User Stops are ignored; reply-expecting Messages inputs already have a failure reply and are excluded.
+
+A root receipt and background task are created atomically for each failed generation; retry/report submissions use stable request IDs. On open, missed failures are scanned above the stored high-water mark, never advancing past unfinished work. Fresh installation marks existing tasks as historical and reports none of them.
+
+The `watchdog.idle` input note is only for @ultimate and only when its set of branch IDs changes. It excludes concluded, running (including owned children), recently active, user-question-waiting and lander-queued branches. It lists at most ten, and clears with “No branches are idle.” It never changes the system prompt.

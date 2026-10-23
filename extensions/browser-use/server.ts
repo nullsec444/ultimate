@@ -28,7 +28,13 @@ export default function browserUseExtension(_host: ExtensionHost) {
         description:
           'Carry out a multi-step goal on the live web in a real headless browser and report the result. Slower than a plain fetch; use it when a task needs navigation, clicks or JS-rendered content.',
         // Web interactions (clicks, form submits) are not safe to repeat after a crash.
-        replay: 'never',
+        replay: 'unsafe',
+        structuredOutputSchema: Type.Object({
+          success: Type.Boolean(),
+          steps: Type.Number(),
+          urls: Type.Array(Type.String()),
+          result: Type.String(),
+        }),
         parameters: Type.Object({
           task: Type.String({ description: 'The goal to accomplish, in plain language.' }),
           max_steps: Type.Optional(
@@ -40,7 +46,9 @@ export default function browserUseExtension(_host: ExtensionHost) {
             }),
           ),
           model: Type.Optional(
-            Type.String({ description: 'Override the driving model, e.g. commandcode deepseek id.' }),
+            Type.String({
+              description: 'Override the driving model, e.g. commandcode deepseek id.',
+            }),
           ),
         }),
         async execute(args, api, context) {
@@ -52,18 +60,25 @@ export default function browserUseExtension(_host: ExtensionHost) {
             signal: context.abortSignal,
           })
           if (!response.ok) {
-            throw new Error(`browser-use service ${response.status}: ${(await response.text()).slice(0, 300)}`)
+            throw new Error(
+              `browser-use service ${response.status}: ${(await response.text()).slice(0, 300)}`,
+            )
           }
           const data = (await response.json()) as RunResult
           api.output(`Done in ${data.steps} steps (success=${data.success}).\n`)
-          return {
+          const result = {
             success: data.success,
             steps: data.steps,
             urls: data.urls ?? [],
             result: data.result,
           }
+          return {
+            output: [{ type: 'text', text: JSON.stringify(result) }],
+            structuredOutput: result,
+            isError: !data.success,
+          }
         },
       }),
-    ].map((tool) => ({ ...tool, outputSchema: { type: 'object' } })),
+    ],
   })
 }

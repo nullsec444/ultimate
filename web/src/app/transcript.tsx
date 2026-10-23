@@ -39,8 +39,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { elidePath, formatDuration, shortenPath } from '../sdk/format.ts'
 import {
   TranscriptContext,
-  useChat,
-  useChatQuiet,
+  useCompact,
+  useCompactQuiet,
   useConversation,
   useExtensions,
   useIntro,
@@ -48,17 +48,18 @@ import {
   useNow,
   useStore,
   useSystem,
+  useUltimate,
 } from '../sdk/hooks.ts'
 import { entryRenderers, messageItems, toolLine } from '../sdk/registry.ts'
 import { covered } from '../sdk/resume.ts'
 import { ExtensionBoundary, Provided, Slot } from './boundary.tsx'
 import { ParkedRuns, RunStart } from '../sdk/types.ts'
-import type { ChatSummaryProps } from '../sdk/types.ts'
+import type { CompactSummaryProps } from '../sdk/types.ts'
 import { MessageActions } from './message-actions.tsx'
 import { textOf, UserView } from './user-turn.tsx'
 import {
   anchorSelector,
-  chatRows,
+  compactRows,
   groupAside,
   groupQuiet,
   isOpenIn,
@@ -70,8 +71,8 @@ import {
   setAsideIds,
   windowGaps,
   windowKey,
-} from './chat.ts'
-import type { AsideGroup, ChatPart, QuietGroup, WorkRun } from './chat.ts'
+} from './compact.ts'
+import type { AsideGroup, CompactPart, QuietGroup, WorkRun } from './compact.ts'
 import { reachedFork } from './fork.ts'
 import { readerLeft } from './follow.ts'
 import { column } from './layout.ts'
@@ -83,10 +84,11 @@ import { TranscriptSkeleton } from './transcript-skeleton.tsx'
 /** The shown conversation; `dock` fits it into a narrow side region. */
 export function Transcript({ dock }: { dock?: boolean }) {
   const { id, loading, busy } = useConversation()
+  const { conversationId } = useUltimate()
   // A conversation without messages opens as it is: no placeholder, nothing rising in.
   const messages = useStore((state) => {
     const shown = state.conversations.find(
-      (conversation) => conversation.id === (state.requested ?? id),
+      (conversation) => conversation.id === (conversationId ?? state.requested),
     )
     return shown?.inputAt !== undefined || shown?.answerAt !== undefined
   })
@@ -509,13 +511,13 @@ function TranscriptEntries() {
       entry.conversationId === id &&
       !(entry.kind === 'pi.tool-result' && calls.has(toolCallId(entry) ?? '')),
   )
-  const chat = useChat()
-  const keeps = (call: ToolCall) => !!chat?.(call)
-  const rows: (ChatPart | WorkRun)[] = chat
-    ? chatRows(visible, keeps)
+  const compact = useCompact()
+  const keeps = (call: ToolCall) => !!compact?.(call)
+  const rows: (CompactPart | WorkRun)[] = compact
+    ? compactRows(visible, keeps)
     : visible.map((entry) => ({ entry }))
   // Background rows, such as traffic between agents, fold into one line per stretch.
-  const background = useChatQuiet()
+  const background = useCompactQuiet()
   const quiet = background
     ? groupQuiet(rows, (part) => background.quiet({ entry: part.entry, calls: shownCalls(part) }))
     : rows
@@ -568,7 +570,7 @@ function TranscriptEntries() {
       setShownQuiet((keys) => openIn(keys, stretch, true))
       return
     }
-    const run = chat && runOf(rows, reveal)
+    const run = compact && runOf(rows, reveal)
     if (run && !isOpen(run)) {
       open(run, true)
       return
@@ -584,7 +586,7 @@ function TranscriptEntries() {
     () => revealStep(),
     [reveal, loading, pending, error, history, opened, filling, shownAside, shownQuiet],
   )
-  const render = (row: ChatPart | WorkRun | QuietGroup, last: boolean): ReactNode =>
+  const render = (row: CompactPart | WorkRun | QuietGroup, last: boolean): ReactNode =>
     'quiet' in row ? (
       // Found like a folded run: by its first entry, or its last when a page reaches into it.
       <div
@@ -713,7 +715,7 @@ const asideKey = (group: AsideGroup) => partsOf(group.aside[0])[0].entry.id
 const quietKey = (group: QuietGroup) => partKey(partsOf(group)[0])
 
 /** The tool calls a row shows: all of its entry's, or those of its blocks. */
-function shownCalls({ entry, blocks }: ChatPart): ToolCall[] {
+function shownCalls({ entry, blocks }: CompactPart): ToolCall[] {
   const message = entry.model?.[0]
   if (message?.role !== 'assistant') return []
   return message.content.flatMap((block, index) =>
@@ -738,7 +740,7 @@ function QuietRow({
   onOpenChange: (open: boolean) => void
   busy: boolean
   summary:
-    | { extension: string; version: number; component: ComponentType<ChatSummaryProps> }
+    | { extension: string; version: number; component: ComponentType<CompactSummaryProps> }
     | undefined
   children: ReactNode
 }) {
@@ -754,7 +756,7 @@ function QuietRow({
   return (
     <Collapsible
       className="group/quiet"
-      data-chat-quiet={rows.length}
+      data-compact-quiet={rows.length}
       onOpenChange={onOpenChange}
       open={open}
     >
@@ -780,7 +782,7 @@ function QuietRow({
   )
 }
 
-/** A run of work in a chat as one quiet row that expands to the usual rendering. */
+/** A run of work in compact mode as one quiet row that expands to the usual rendering. */
 function WorkRow({
   run,
   working,

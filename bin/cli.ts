@@ -31,7 +31,7 @@ function recoveryPrompt(host: CliHost) {
         `<project_instructions path="${file.path}">\n${file.content}\n</project_instructions>`,
     )
     .join('\n\n')
-  return `You are Ultimate's emergency terminal agent, started with \`ultimate --cli\` because the web UI, the server or the conversation database may be broken. Diagnose and repair with your tools; you are not inside the durable harness, so there are no conversations, subagents, board or workspace tools here.
+  return `You are Ultimate's emergency terminal agent, started with \`ultimate --cli\` because the web UI, the server or the conversation database may be broken. Diagnose and repair with your tools; you are not inside the durable harness, so there are no conversations, subagents, messages or workspace tools here.
 
 - Ultimate (the running code): ${host.ultimateRoot}
 - Project: ${host.projectRoot}

@@ -3,9 +3,9 @@ import type { ConversationSummary } from '../../../shared/protocol.ts'
 import { events } from './events.ts'
 import { errorMessage } from './format.ts'
 import type {
-  ChatCallTest,
-  ChatQuietTest,
-  ChatSummaryProps,
+  CompactCallTest,
+  CompactQuietTest,
+  CompactSummaryProps,
   CommandContribution,
   ComposerRenderer,
   Contribution,
@@ -67,6 +67,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 const isString: Check = (value) => typeof value === 'string'
 const isNumber: Check = (value) => typeof value === 'number'
+const isBoolean: Check = (value) => typeof value === 'boolean'
 const isFunction: Check = (value) => typeof value === 'function'
 /** A function or class component, or an exotic one such as `memo(…)`. */
 const isComponent: Check = (value) => isFunction(value) || (isObject(value) && '$$typeof' in value)
@@ -103,9 +104,10 @@ const shapes: Record<keyof WebExtension, [Check, string]> = {
         icon: optional(isComponent),
         component: isComponent,
         order: optional(isNumber),
+        tab: optional(isBoolean),
       }),
     ),
-    'an array of { id, title, icon?, component, order? }',
+    'an array of { id, title, icon?, component, order?, tab? }',
   ],
   surfaces: [
     arrayOf(
@@ -129,7 +131,7 @@ const shapes: Record<keyof WebExtension, [Check, string]> = {
   messageActions: [arrayOf(isComponent), 'an array of message action components'],
   messageDetails: [arrayOf(isComponent), 'an array of message detail components'],
   answerLabels: [arrayOf(isComponent), 'an array of answer label components'],
-  chat: [
+  compact: [
     fields({
       when: isFunction,
       tools: optional(arrayOf((tool) => isString(tool) || isFunction(tool))),
@@ -359,6 +361,16 @@ export function panelItems(records: readonly ExtensionRecord[]): PanelItem[] {
     .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0))
 }
 
+/**
+ * The shown panel, `selected` or else the first with a tab (none while only tabless ones exist), and the tab row: every
+ * panel with a tab, plus a tabless one (`tab: false`) while it is shown.
+ */
+export function shownPanels(panels: readonly PanelItem[], selected: string | null) {
+  const active =
+    panels.find((panel) => panel.id === selected) ?? panels.find((panel) => panel.tab !== false)
+  return { active, tabs: panels.filter((panel) => panel.tab !== false || panel === active) }
+}
+
 /** The home surface: shown by default, and whenever the chosen surface cannot be. */
 export const HOME = 'agent'
 
@@ -543,35 +555,41 @@ export function messageItems(
 }
 
 /**
- * Which calls stay visible when `conversation` reads as a chat, and the root documents its tests read (`docs`), or
+ * Which calls stay visible when `conversation` uses compact mode, and the root documents its tests read (`docs`), or
  * `undefined` when no facet makes it one. A `when` or a call test that throws counts as no and goes to `report`, so one
  * broken extension cannot take down the transcript.
  */
-export function chatTools(
+export function compactTools(
   records: readonly ExtensionRecord[],
   conversation: ConversationSummary | undefined,
   report: (extension: string, error: unknown) => void,
 ):
   | {
-      keeps: ChatCallTest
-      quiet: ChatQuietTest
-      summary?: { extension: string; version: number; component: ComponentType<ChatSummaryProps> }
+      keeps: CompactCallTest
+      quiet: CompactQuietTest
+      summary?: {
+        extension: string
+        version: number
+        component: ComponentType<CompactSummaryProps>
+      }
       docs: readonly string[]
     }
   | undefined {
   if (!conversation) return undefined
   const matching = records.flatMap(({ name, version, extension }) => {
-    if (!extension?.chat) return []
+    if (!extension?.compact) return []
     try {
-      return extension.chat.when(conversation) ? [{ name, version, chat: extension.chat }] : []
+      return extension.compact.when(conversation)
+        ? [{ name, version, compact: extension.compact }]
+        : []
     } catch (error) {
       report(name, error)
       return []
     }
   })
   if (!matching.length) return undefined
-  const tools = matching.flatMap(({ name, chat }) =>
-    (chat.tools ?? []).map((tool) => ({ name, tool })),
+  const tools = matching.flatMap(({ name, compact }) =>
+    (compact.tools ?? []).map((tool) => ({ name, tool })),
   )
   const names = new Set(tools.flatMap(({ tool }) => (typeof tool === 'string' ? [tool] : [])))
   const tests = tools.flatMap(({ name, tool }) =>
@@ -589,9 +607,9 @@ export function chatTools(
         }
       }),
     quiet: (row, docs) => {
-      const verdicts = matching.map(({ name, chat }) => {
+      const verdicts = matching.map(({ name, compact }) => {
         try {
-          return chat.quiet?.(row, docs) ?? false
+          return compact.quiet?.(row, docs) ?? false
         } catch (error) {
           report(name, error)
           return false
@@ -599,9 +617,9 @@ export function chatTools(
       })
       return verdicts.includes(true) || (verdicts.includes('hidden') ? 'hidden' : false)
     },
-    summary: matching.flatMap(({ name, version, chat }) =>
-      chat.summary ? [{ extension: name, version, component: chat.summary }] : [],
+    summary: matching.flatMap(({ name, version, compact }) =>
+      compact.summary ? [{ extension: name, version, component: compact.summary }] : [],
     )[0],
-    docs: [...new Set(matching.flatMap(({ chat }) => chat.docs ?? []))].toSorted(),
+    docs: [...new Set(matching.flatMap(({ compact }) => compact.docs ?? []))].toSorted(),
   }
 }

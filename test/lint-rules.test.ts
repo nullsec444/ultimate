@@ -64,17 +64,18 @@ it('rejects process imports and real sleeps, but allows IO yields, fake timers a
 it('rejects retired UI labels case-insensitively and only the board surface property', () => {
   const f = context()
   const rule = ultimate.rules['no-retired-ui'].create(f.context)
-  for (const value of ['SIDE CHAT', 'Branch from here', 'clear context', 'New conversation'])
+  for (const value of ['Branch from here', 'clear context', 'New conversation'])
     rule.Literal({ type: 'Literal', value })
   rule.Literal({
     type: 'Literal',
     value: 'board',
     parent: { type: 'Property', key: { type: 'Identifier', name: 'surface' } },
   })
-  expect(f.reports).toHaveLength(5)
+  expect(f.reports).toHaveLength(4)
   rule.Literal({ type: 'Literal', value: 'board' })
   rule.Literal({ type: 'Literal', value: 'Start a branch' })
-  expect(f.reports).toHaveLength(5)
+  rule.Literal({ type: 'Literal', value: 'SIDE CHAT' })
+  expect(f.reports).toHaveLength(4)
 })
 
 it('rejects local polling function declarations in favor of the shared real-deadline helper', () => {

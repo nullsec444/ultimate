@@ -261,7 +261,9 @@ function Form({
   const [creating, setCreating] = useState(!shown?.definition)
   const source = creating ? undefined : shown?.source
   const [scope, setScope] = useState<Scope>(
-    source === 'user' || (source !== 'project' && !discovery.projectLocal) ? 'user' : 'project',
+    source === 'user' || (source !== 'project' && discovery.projectSetup !== 'trusted')
+      ? 'user'
+      : 'project',
   )
   const [pending, setPending] = useState<'save' | 'delete'>()
   const [confirming, setConfirming] = useState(false)
@@ -363,7 +365,7 @@ function Form({
             onClick={() => {
               setCreating(true)
               set({ name: `${draft.name}-copy` })
-              if (!discovery.projectLocal) setScope('user')
+              if (discovery.projectSetup !== 'trusted') setScope('user')
             }}
             size="sm"
             title="Start a new definition from this one"
@@ -520,16 +522,17 @@ function Form({
           <Segmented
             label="Save to"
             onChange={(next) => {
-              if (next === 'project' && !discovery.projectLocal) return
+              if (next === 'project' && discovery.projectSetup !== 'trusted') return
               setScope(next)
             }}
             options={[
               {
                 value: 'project',
                 label: 'project',
-                title: discovery.projectLocal
-                  ? "This project's .ultimate/agents, shared with its team"
-                  : "Choose this project's local setup first (Extensions panel)",
+                title:
+                  discovery.projectSetup === 'trusted'
+                    ? "This project's .ultimate/agents, shared with its team"
+                    : "Choose this project's local setup first (Extensions panel)",
               },
               { value: 'user', label: 'user', title: 'Your ~/.ultimate/agents, in every project' },
             ]}

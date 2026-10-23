@@ -27,7 +27,20 @@ narrow side region). Render `core` to preserve the existing composer, optionally
 discovery order: each receives the previous rendering as `core`, behind its own extension boundary with that rendering
 as fallback. These renderers can use `useTranscript()` for the shown conversation's current entries.
 Lineage uses this to show a root's read-only context footer, or an empty root's Start here card, instead of a composer.
+To send what the composer submits elsewhere, wrap `core` in `<ComposerRedirect to={{ placeholder, send }}>` (from `@/sdk`):
+while `to` is set, Enter and the send button call `send(text)` instead of submitting, with the same draft, error and
+sending states (side-chat forks @ultimate this way). Only the shown conversation's composer takes typing shortcuts
+(Escape, Shift+Tab); a scoped one does not.
 `switchConversation(id, { replace: true })` takes the current history entry instead of adding one, as a redirect does.
+
+Wrap `<Conversation/>` in `<ConversationScope id={id}>` (both from `@/sdk`) to render another live conversation without
+switching the shell. `useConversation(select?)`, `useTranscript`, `useDoc`/`useDocKind`, `useUltimate().conversationId`,
+`useIntro`, `useCompact`/`useCompactQuiet`, and `useAction` follow the nearest scope, as do transcript/composer
+contributions. Scopes of the same id share a stream; the last unmount releases it. Outside a scope these hooks keep
+their existing behaviour. A shortcut pressed inside a scope runs its command with the scope's id as
+`context.conversationId` (Escape stops the scoped run). Explicit `useDocOf` ids, root UI state, shell navigation, the
+palette, `getConversation()` without an id and the imperative `api` stay global: callbacks using `api` must pass the
+scoped id explicitly when acting on it, as toolbar contributions do with `useConversation().id`.
 
 ## Where extensions live
 
@@ -45,7 +58,7 @@ with `{ "extensions": { "disable": ["hello"] } }` in `~/.ultimate/settings.json`
 `<project>/.ultimate/settings.json` (this project), and back on with `extensions.enable`. Settings layer defaults →
 machine → project; later layers win. Settings changes apply live without a restart; unknown names produce a notice.
 A core-tier extension (`export const tier = 'core'` in its `api.ts`, such as conversations, workspaces, subagents,
-lineage, board and sidebar) stays on whatever the settings say, and depends only on other core-tier extensions: an
+lineage, messages and sidebar) stays on whatever the settings say, and depends only on other core-tier extensions: an
 optional extension plugs into it through a point or an event, never the other way round (lint `core-tier-deps`; see
 [Core tier](../docs/extensions.md#core-tier)).
 
@@ -277,7 +290,7 @@ No restart, no reload.
 
 ## Contributions
 
-`defineWebExtension({ slots, panels, surfaces, tools, toolLines, entries, link, messageActions, messageDetails, answerLabels, chat, intro, documents, commands })`; every key is optional. Extensions load
+`defineWebExtension({ slots, panels, surfaces, tools, toolLines, entries, link, messageActions, messageDetails, answerLabels, compact, intro, documents, commands })`; every key is optional. Extensions load
 in parallel, installing independently; contributions follow discovery order: built-in → user → project, then folder name within each source. Give a slot item `{ component, order }` to move it (default order 0, lower first).
 
 ### Slots
@@ -316,7 +329,8 @@ import { InfoIcon } from 'lucide-react'
 panels: [{ id: 'info', title: 'Info', icon: InfoIcon, component: InfoPanel }]
 ```
 
-Open one from code with `useUltimate().openPanel('info')`. Panels show on surfaces that render `<Panels />`, such
+Open one from code with `useUltimate().openPanel('info')`. A panel with `tab: false` stays out of the tab row until
+something opens it (a command, a sidebar row); give it a ⌘K command. Panels show on surfaces that render `<Panels />`, such
 as Agent.
 
 ### Surfaces (apps)
@@ -406,7 +420,7 @@ shows each message's context and cost there.
 `answerLabels` contributes inline labels after the **Final answer** heading, only on stored final assistant messages
 (not streaming updates). Like `messageDetails`, it is an array of components receiving `{ entry: EntryRecord }`,
 rendered in discovery and contribution order, each behind an extension boundary. Return `null` when the entry has
-no relevant label. Keep labels brief and muted; the header wraps at narrow widths. Board uses it to show where an
+no relevant label. Keep labels brief and muted; the header wraps at narrow widths. Messages uses it to show where an
 answer was sent, or that a one-way message's answer was not sent.
 
 `toolLines` maps tool names to components receiving `{ call: ToolCallView }` that render the call as one short line
@@ -414,13 +428,13 @@ of plain text. A folded "worked · N steps" row lists its newest calls this way 
 line, the tool name when no facet provides one); the last facet providing a name wins. Coding tools give their verb and
 path or programs, codemode its one-line summary.
 
-`chat` makes conversations read as a chat: `{ when(conversation), tools? }` decides from a conversation's summary
+`compact` makes conversations use compact mode: `{ when(conversation), tools? }` decides from a conversation's summary
 (label, title, owner), and in a matching transcript each run of tool calls and thinking between inputs, messages and
 answers folds into one quiet "worked · N steps" row that expands to the usual rendering. Calls the listed `tools` keep
 stay visible and split the run: a tool name, or a test `(call, docs) => boolean` of a call; `docs` lists the kinds of
 the root conversation's documents the tests read, which the transcript follows and passes to them by kind. The tools
-and docs of every matching facet combine. Renderers check `useChat()`, that test for the shown conversation or
-`undefined`, to adapt to it. Board turns it on for @ultimate's conversation, keeping messages, branch starts,
+and docs of every matching facet combine. Renderers check `useCompact()`, that test for the shown conversation or
+`undefined`, to adapt to it. Messages turns it on for @ultimate's conversation, keeping messages, branch starts,
 workspace outcomes and scripts its log says messaged you, and shows its messages to you as bubbles. Revealing an entry
 in a folded run opens the run.
 
@@ -439,7 +453,7 @@ entries: { 'notes.pinned': ({ entry }) => <div className="text-muted-foreground"
 ```
 
 A renderer also gets `core`, the rendering of the same entry so far: return it for the entries you leave alone, wrap
-it, or return `null` to hide the entry. In a chat, a row can show only some content blocks of a response; `blocks`
+it, or return `null` to hide the entry. In compact mode, a row can show only some content blocks of a response; `blocks`
 lists their indexes then. Several extensions can render one kind: they compose in discovery order, each
 receiving the rendering of the one before it as `core`, down to the core's own. Each runs in its own error boundary,
 which falls back to its `core` when it throws. `self` renders `pi.system` entries that change the build section as a
@@ -496,11 +510,12 @@ commands: [
 ]
 ```
 
-`run(context)` gets the shell actions (below), the shown `conversationId`, and the shown `surface` id; return a promise
+`run(context)` gets the shell actions (below), the shown `conversationId` (the scoped one for a shortcut typed inside a
+`ConversationScope`), and the shown `surface` id; return a promise
 to have a failure reported as a notice. `when(context)` hides the command when it returns false, such as
 `when: (context) => context.surface === 'commits'` for a command of one surface; a `when` that throws hides it too and
-reports a notice naming your extension. Commands run outside React: read the current state with `getConversation()`
-and `getState()`, not hooks.
+reports a notice naming your extension. Commands run outside React: read the current state with
+`getConversation(context.conversationId)` and `getState()`, not hooks, and act on `context.conversationId`.
 
 Plain keys and Shift+letter never fire while the user types; chords with `mod`, `alt`, or `ctrl` do. A plain key that
 must work in the composer too sets `whileTyping: true`, as Escape (`agent.stop`) and Shift+Tab

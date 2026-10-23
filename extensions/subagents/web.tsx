@@ -301,7 +301,7 @@ function ChildList({ output }: { output: string }) {
 
 export default defineWebExtension({
   tools: { subagent: SubagentCall },
-  panels: [{ id: 'agents', title: 'Agents', icon: NetworkIcon, component: Definitions, order: -6 }],
+  panels: [{ id: 'agents', title: 'Agents', icon: NetworkIcon, component: Definitions, order: 3 }],
   entries: { 'subagents.instruction': AgentInput, 'subagents.report': AgentInput },
   inbox: AgentInbox,
   slots: { overlay: [DefinitionDialog], 'header.right': [AgentMessages] },

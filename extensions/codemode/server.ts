@@ -39,7 +39,7 @@ import type { ActionContext } from '../../server/actions.ts'
 import { READ_BYTES, READS, readProject } from './projects.ts'
 import type { Read } from './projects.ts'
 import { ConversationsApi } from '../conversations/api.ts'
-import { BoardApi } from '../board/api.ts'
+import { MessagesApi } from '../messages/api.ts'
 import type { ResponseReceipt } from '../conversations/summary.ts'
 import type { SummaryModel } from '../conversations/summary-model.ts'
 import { Summarized } from './refs.ts'
@@ -328,7 +328,7 @@ function globals(
           throw new Error('reply must be a boolean')
         if (machine !== undefined && (typeof machine !== 'string' || !machine))
           throw new Error('machine must be nonempty')
-        return host.need(BoardApi).tell(
+        return host.need(MessagesApi).tell(
           conversationId,
           {
             project,
@@ -386,8 +386,9 @@ function globals(
     {
       name: 'agents',
       description:
-        'Agent definitions for subagents and automations: source, path, fields and instructions, plus invalid files. To change one, edit its file.',
-      signature: '(): Promise<unknown>',
+        "Agent definitions for subagents and automations, the files that failed to parse, user or project files replacing a built-in, and the project's `.ultimate/` setup decision: its definitions apply only once trusted. To change one, edit its file.",
+      signature:
+        "(): Promise<{ definitions: { name: string; description: string; path: string; source: 'builtin' | 'user' | 'project'; instructions: string; model?: { provider: string; modelId: string }; thinking?: string; tools?: string[]; isolate?: 'none' | 'worktree'; resident?: boolean; onFailure?: 'diagnose' | 'fix'; fast?: boolean; overlays?: string[] }[]; errors: { name: string; path: string; source: string; error: string }[]; replaced: { name: string; path: string; source: string }[]; projectSetup: 'trusted' | 'declined' | 'undecided' }>",
       execute: () =>
         discoverAgents(host.ultimateRoot, host.projectRoot, host.userHome, host.modelRuntime),
     },

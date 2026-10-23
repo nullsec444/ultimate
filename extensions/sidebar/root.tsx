@@ -1,44 +1,20 @@
-import { ChevronRightIcon, EllipsisIcon, FoldVerticalIcon, MessageCircleIcon } from 'lucide-react'
-import { useEffect, useRef } from 'react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  api,
-  cn,
-  events,
-  formatTokens,
-  Provided,
-  useAction,
-  useDocOf,
-  useEvents,
-  useUltimate,
-} from '@/sdk'
+import { ScrollTextIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { cn, formatTokens, Provided, useAction, useDocOf, useEvents, useUltimate } from '@/sdk'
+import { MEMORY_PANEL, MemoryDoc, TallyDoc } from '../lineage/ui.tsx'
 import { Committed } from '../coding-tools/ui.tsx'
-import { BoardDoc, conversationState, emptyBoard } from '../board/ui.tsx'
+import { MessagesDoc, conversationState, emptyMessages } from '../messages/ui.tsx'
 import { StandingDoc } from '../subagents/ui.tsx'
-import { CompactAction, RecentAction, TallyDoc } from '../lineage/ui.tsx'
-import type { RootEvent } from '../lineage/types.ts'
 import { CommitCount, ProgressAction, Review, useWorkspaceIndex } from '../workspaces/ui.tsx'
 import type { WorkspaceConversation as ConversationSummary } from '../workspaces/ui.tsx'
 import { AgentMark, ConversationPhase, FeatureTag, useOverview } from '../conversations/ui.tsx'
 import { ago } from './lander.tsx'
-import { useSidebarState } from './state.tsx'
+import type { Landing } from './landings.ts'
+import { RowMenu, saveTitle } from './rows.tsx'
+import { Section } from './section.tsx'
 import { workOf } from './work.ts'
 import type { Work } from './work.ts'
-
-type Landing = Extract<RootEvent, { type: 'landed' }>
-type Actions = Pick<ReturnType<typeof useUltimate>, 'switchConversation' | 'showSurface'>
-
-/** Opens `conversation` at `entry` on the Agent surface. */
-function openEntry(actions: Actions, conversation: number, entry: number) {
-  events.emit('board:open', { conversation, entry })
-  actions.showSurface('agent')
-  actions.switchConversation(conversation)
-}
 
 /** When a branch last landed: its latest landed submission's last step. */
 export function landedAt(index: ReturnType<typeof useWorkspaceIndex>, id: number) {
@@ -71,7 +47,7 @@ function useBranchState(
   parked = false,
 ) {
   const index = useWorkspaceIndex()
-  const board = useDocOf(1, BoardDoc) ?? emptyBoard
+  const log = useDocOf(1, MessagesDoc) ?? emptyMessages
   const runState = useOverview()[conversation.id]?.runState
   const primary = useDocOf(1, StandingDoc)?.ultimate
   const queued = index.queue.find((item) => item.conversationId === conversation.id)
@@ -82,7 +58,7 @@ function useBranchState(
   // The sidebar's one conversation state; `working` also counts its subagents' runs.
   const state = working
     ? 'working'
-    : conversationState({ id: conversation.id, kind: 'other', runState, primary }, board)
+    : conversationState({ id: conversation.id, kind: 'other', runState, primary }, log)
   if (state === 'working')
     return {
       label: phase && !phase.waiting ? phase.word : 'working',
@@ -111,6 +87,9 @@ type FlightProps = {
   shown: boolean
   now: number
   work?: Work
+  /** Its subagents, one line each. */
+  children?: ReactNode
+  onConclude: (conclude: boolean) => void
 }
 
 /** Uncommitted edits as "+ 4 edits", opening a review of them while something reviews. */
@@ -152,110 +131,112 @@ function PhasedFlightRow({
   shown,
   now,
   work,
+  children,
+  onConclude,
   phase,
 }: FlightProps & { phase?: { word: string; waiting: boolean } }) {
   const actions = useUltimate()
+  const [editing, setEditing] = useState(false)
+  const cancelled = useRef(false)
   const feature = useOverview()[conversation.id]?.feature
   const state = useBranchState(conversation, working, phase, parked)
   const latest = Math.max(conversation.inputAt ?? 0, conversation.answerAt ?? 0)
   const title = conversation.title ?? `#${conversation.id}`
   return (
-    <li className="relative">
-      <button
-        aria-current={shown ? 'true' : undefined}
-        className={cn(
-          'flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-sm py-1 pr-2 pl-[42px] text-left outline-none hover:bg-sidebar-accent/60 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
-          shown && 'bg-sidebar-accent',
-        )}
-        data-in-flight={conversation.id}
-        onClick={() => actions.switchConversation(conversation.id)}
-        title={`${title} · #${conversation.id}`}
-        type="button"
-      >
-        <span className="flex w-full min-w-0 items-center gap-1.5">
-          <span
-            className={cn(
-              'size-1.5 shrink-0 rounded-full',
-              state.tone === 'brand'
-                ? 'animate-pulse-dot bg-brand'
-                : state.tone === 'waiting' || state.tone === 'paused'
-                  ? 'bg-amber-400'
-                  : state.tone === 'success'
-                    ? 'bg-success'
-                    : state.tone === 'failed'
-                      ? 'bg-error'
-                      : 'bg-muted-foreground/40',
-            )}
+    <li>
+      <div className="group relative">
+        {editing && (
+          <input
+            aria-label="Conversation title"
+            autoFocus
+            className="absolute inset-x-2 top-0.5 z-10 h-6 rounded-sm border border-input bg-background px-1.5 text-[12px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            defaultValue={conversation.title ?? ''}
+            onBlur={(event) => {
+              setEditing(false)
+              if (!cancelled.current) saveTitle(conversation.id, event.currentTarget.value)
+            }}
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing)
+                event.currentTarget.blur()
+              if (event.key === 'Escape') {
+                cancelled.current = true
+                event.currentTarget.blur()
+              }
+            }}
           />
-          <span
-            className={cn(
-              'min-w-0 flex-1 truncate text-[12px]',
-              shown ? 'text-foreground' : 'text-foreground/85',
-            )}
-          >
-            {title}
-          </span>
-        </span>
-        <span className="flex w-full min-w-0 items-center gap-1.5 pl-3 font-mono text-[10px] leading-4 text-muted-foreground">
-          {feature && <FeatureTag feature={feature} />}
-          <span className={cn('shrink-0', tones[state.tone])}>{state.label}</span>
-          {latest > 0 && (
-            <span className="ml-auto shrink-0 pl-1 text-muted-foreground/60">
-              {ago(latest, now)}
-            </span>
+        )}
+        <button
+          aria-current={shown ? 'true' : undefined}
+          className={cn(
+            'mx-2 flex w-[calc(100%-1rem)] min-w-0 cursor-pointer flex-col gap-0.5 rounded-md py-1 pr-2 pl-2.5 text-left outline-none hover:bg-sidebar-accent/60 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+            shown && 'bg-sidebar-accent',
           )}
-        </span>
-      </button>
+          data-in-flight={conversation.id}
+          onClick={() => actions.switchConversation(conversation.id)}
+          title={`${title} · #${conversation.id}`}
+          type="button"
+        >
+          <span className="flex w-full min-w-0 items-center gap-1.5 pr-5">
+            <span
+              className={cn(
+                'size-1.5 shrink-0 rounded-full',
+                state.tone === 'brand'
+                  ? 'animate-pulse-dot bg-brand'
+                  : state.tone === 'waiting' || state.tone === 'paused'
+                    ? 'bg-amber-400'
+                    : state.tone === 'success'
+                      ? 'bg-success'
+                      : state.tone === 'failed'
+                        ? 'bg-error'
+                        : 'bg-muted-foreground/40',
+              )}
+            />
+            <span
+              className={cn(
+                'min-w-0 flex-1 truncate text-[12px]',
+                shown ? 'text-foreground' : 'text-foreground/85',
+              )}
+            >
+              {title}
+            </span>
+          </span>
+          <span className="flex w-full min-w-0 items-center gap-1.5 pl-3 font-mono text-[10px] leading-4 text-muted-foreground">
+            {feature && <FeatureTag feature={feature} />}
+            <span className={cn('shrink-0', tones[state.tone])}>{state.label}</span>
+            {latest > 0 && (
+              <span className="ml-auto shrink-0 pl-1 text-muted-foreground/60">
+                {ago(latest, now)}
+              </span>
+            )}
+          </span>
+        </button>
+        {!editing && (
+          // Beside the title rather than at the bottom right, where the age is.
+          <div className="absolute top-0.5 right-2 size-5">
+            <RowMenu
+              concluded={false}
+              conversation={conversation}
+              onConclude={onConclude}
+              onRename={() => {
+                cancelled.current = false
+                setEditing(true)
+              }}
+            />
+          </div>
+        )}
+      </div>
       {work && (
         // Its own line under the row's button, so its links never nest in it.
         <span
-          className="flex min-w-0 items-center gap-2 pr-2 pb-0.5 pl-[54px] font-mono text-[10px] leading-4 text-muted-foreground/80"
+          className="flex min-w-0 items-center gap-2 pr-2 pb-0.5 pl-[30px] font-mono text-[10px] leading-4 text-muted-foreground/80"
           data-flight-work={conversation.id}
         >
           {work.commits && <CommitCount count={work.commits.count} range={work.commits.spec} />}
           {work.edits && <Edits count={work.edits.count} spec={work.edits.spec} />}
         </span>
       )}
-    </li>
-  )
-}
-
-/** A landing as one line: the feature it shipped, its commit count linking the compare range, its age. */
-function LandingLine({ event, root, now }: { event: Landing; root: number; now: number }) {
-  const actions = useUltimate()
-  const label = event.feature ?? event.title
-  return (
-    <li
-      className="flex h-5 min-w-0 items-center gap-1.5 rounded-sm pr-2 pl-[42px] font-mono text-[10.5px] text-muted-foreground hover:bg-sidebar-accent/60"
-      data-root-event="landed"
-    >
-      <button
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={() => openEntry(actions, root, event.entry)}
-        title={[event.feature, event.title, `Open #${root}/${event.entry}`]
-          .filter(Boolean)
-          .join(' · ')}
-        type="button"
-      >
-        {event.feature ? (
-          <FeatureTag className="max-w-full" feature={event.feature} />
-        ) : (
-          <span className="truncate font-sans text-[11.5px] text-foreground/80">
-            {label ?? event.sha.slice(0, 7)}
-          </span>
-        )}
-      </button>
-      <CommitCount
-        className="text-muted-foreground/80"
-        count={event.commits}
-        href={event.compare}
-        range={event.base ? `${event.base}...${event.sha}` : undefined}
-      />
-      {event.at !== undefined && (
-        <span className="w-6 shrink-0 text-right text-muted-foreground/60">
-          {ago(event.at, now)}
-        </span>
-      )}
+      {children}
     </li>
   )
 }
@@ -295,183 +276,150 @@ function useFlightWork(branches: ConversationSummary[]) {
   )
 }
 
-/** A section's quiet heading, as a fold toggle when it folds. */
-const heading =
-  'flex w-full items-center gap-1 pt-1 pb-0.5 pl-[42px] font-mono text-[9.5px] tracking-wider text-muted-foreground/70 uppercase'
+/** An open branch for the In flight section, with whether it (or a subagent of it) works and its subagent lines. */
+export type Flight = {
+  conversation: ConversationSummary
+  working: boolean
+  parked?: boolean
+  subagents?: ReactNode
+}
 
 /**
- * The head of a tree as a small dashboard: the context every branch starts from, what is in flight (open branches
- * with their feature, state and age) and what landed (feature, commit count linking the compare range on GitHub, age),
- * folded to the last few. Notes, new branches and compactions stay on the root's page. A root is never concluded or
- * cleared; its menu compacts the context or opens @ultimate, who keeps it.
+ * Whether a flight still counts as open once the roots' own landing notes are known too: the lander keeps only recent
+ * results, so a branch whose landing note is newer than its latest input landed, unless it works again.
  */
-export function RootRow({
+export const stillOpen = (flight: Flight, landings: readonly Landing[]) =>
+  flight.working ||
+  !landings.some(
+    (event) =>
+      event.from === flight.conversation.id &&
+      (event.at ?? 0) >= (flight.conversation.inputAt ?? 0),
+  )
+
+/**
+ * In flight · N: every open branch across the project's trees, newest input first, each with its feature, state, age,
+ * its work so far and its subagents nested below it. It replaces the per-root tree; concluded and landed work sits in
+ * the Landed, Earlier and Concluded folds.
+ */
+export function InFlight({
+  flights,
+  shownId,
+  now,
+  onConclude,
+}: {
+  flights: Flight[]
+  shownId?: number
+  now: number
+  onConclude: (id: number, conclude: boolean) => void
+}) {
+  const work = useFlightWork(flights.map((flight) => flight.conversation))
+  if (!flights.length) return null
+  return (
+    <Section count={flights.length} id="in-flight" label="In flight">
+      <ul className="flex flex-col gap-px">
+        {flights.map((flight) => (
+          <FlightRow
+            conversation={flight.conversation}
+            key={flight.conversation.id}
+            now={now}
+            onConclude={(conclude) => onConclude(flight.conversation.id, conclude)}
+            parked={flight.parked}
+            shown={flight.conversation.id === shownId}
+            work={work.get(flight.conversation.id)}
+            working={flight.working}
+          >
+            {flight.subagents}
+          </FlightRow>
+        ))}
+      </ul>
+    </Section>
+  )
+}
+
+const kinds = [
+  ['decision', 'decisions'],
+  ['fact', 'facts'],
+  ['lesson', 'lessons'],
+] as const
+
+/**
+ * A root's project memory as one row: what every new branch starts from, counted by kind, with the brief's size; a
+ * click opens the Memory panel. Its tally, the browsable history behind it, is a quiet History link under it, whose
+ * footer compacts it. A root without memories yet shows its context's size, and the panel says it has none yet.
+ */
+export function MemoryRow({
   conversation,
   shown,
-  shownId,
   working,
-  flights,
-  now,
-  onTalk,
 }: {
   conversation: ConversationSummary
   shown: boolean
-  shownId?: number
   working?: 'self' | 'subagents'
-  /** Open branches of this tree, newest first, with whether each works. */
-  flights: { conversation: ConversationSummary; working: boolean; parked?: boolean }[]
-  now: number
-  onTalk: () => void
 }) {
   const actions = useUltimate()
   const id = conversation.id
   const tally = useDocOf(id, TallyDoc)
-  const [unfolded, setUnfolded] = useSidebarState<number[]>('landingsOpen', [])
-  const more = unfolded.includes(id)
-  const landings = useAction(
-    RecentAction,
-    { id, types: ['landed'], limit: 10 },
-    { onError: () => {} },
-  )
-  const { refetch } = landings
-  // Every entry the root gets recounts its tokens: a new count means something may have landed.
-  const tokens = tally?.tokens
-  const first = useRef(true)
-  useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
-    // oxlint-disable-next-line typescript/no-floating-promises -- useAction reports failures and resolves undefined rather than rejecting.
-    void refetch()
-  }, [tokens, refetch])
-  // A hardcoded name: the root's summary title described its pre-context history, not what it holds now.
-  const name = 'Project context'
-  // Asked for landings only.
-  const landed = (landings.data ?? []) as Landing[]
-  const shownLandings = more ? landed : landed.slice(0, 3)
-  // The root's own landing notes count too: the lander keeps only recent results.
-  const open = flights.filter(
-    (flight) =>
-      flight.working ||
-      !landed.some(
-        (event) =>
-          event.from === flight.conversation.id &&
-          (event.at ?? 0) >= (flight.conversation.inputAt ?? 0),
-      ),
-  )
-  const work = useFlightWork(open.map((flight) => flight.conversation))
+  const memories = Object.values(useDocOf(id, MemoryDoc)?.memories ?? {})
+  const counts = kinds
+    .map(
+      ([kind, plural]) => [memories.filter((item) => item.kind === kind).length, plural] as const,
+    )
+    .filter(([count]) => count > 0)
+  const tokens = tally?.since === undefined ? undefined : (tally.briefTokens ?? tally.tokens)
+  const openContext = () => {
+    actions.showSurface('agent')
+    actions.switchConversation(id)
+  }
   return (
-    <div
-      className={cn(
-        'group relative mx-2 rounded-md pb-1 transition-colors',
-        shown ? 'bg-sidebar-accent/60' : 'hover:bg-sidebar-accent/30',
-      )}
-      data-conversation={id}
-      data-root-row={id}
-    >
+    <div data-conversation={id} data-root-row={id}>
       <button
-        aria-current={shown ? 'true' : undefined}
-        className="flex h-9 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md pr-7 pl-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
-        onClick={() => actions.switchConversation(id)}
-        title={conversation.title ? `${conversation.title} · #${id}` : `#${id}`}
+        aria-label={`Project memory of #${id}`}
+        className="mx-2 flex h-11 w-[calc(100%-1rem)] min-w-0 cursor-pointer items-center gap-2.5 rounded-md pr-2 pl-2 text-left outline-none hover:bg-sidebar-accent/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+        onClick={() => actions.openPanel(MEMORY_PANEL)}
+        title="What every new branch starts from · open Memory"
         type="button"
       >
-        <AgentMark name="root" presence={working === 'self' ? 'working' : undefined} />
-        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-          <span
-            className={cn(
-              'truncate text-[13px] font-semibold',
-              shown ? 'text-foreground' : 'text-foreground/90',
+        <AgentMark name="memory" presence={working === 'self' ? 'working' : undefined} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="truncate text-[13px] leading-5 font-semibold text-foreground">
+              Memory
+            </span>
+            {tokens !== undefined && (
+              <span
+                className="shrink-0 font-mono text-[10px] text-muted-foreground/70"
+                title="Tokens every new branch starts from"
+              >
+                {formatTokens(tokens)}
+              </span>
             )}
-          >
-            {name}
           </span>
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">#{id}</span>
+          <span className="truncate font-mono text-[10px] leading-4 text-muted-foreground">
+            {counts.length
+              ? counts
+                  .map(
+                    ([count, plural]) => `${count} ${count === 1 ? plural.slice(0, -1) : plural}`,
+                  )
+                  .join(' · ')
+              : 'none yet'}
+          </span>
         </span>
-        {tokens !== undefined && tally?.since !== undefined && (
-          <span
-            className="shrink-0 font-mono text-[10px] text-muted-foreground/80"
-            title={
-              tally.briefTokens === undefined
-                ? 'Context every new branch starts from'
-                : 'Memory every new branch starts from'
-            }
-          >
-            {formatTokens(tally.briefTokens ?? tokens)}
-          </span>
-        )}
       </button>
-      {open.length > 0 && (
-        <section aria-label={`In flight in ${name}`}>
-          <h3 className={heading}>In flight · {open.length}</h3>
-          <ul className="flex flex-col">
-            {open.map((flight) => (
-              <FlightRow
-                conversation={flight.conversation}
-                key={flight.conversation.id}
-                now={now}
-                parked={flight.parked}
-                shown={flight.conversation.id === shownId}
-                work={work.get(flight.conversation.id)}
-                working={flight.working}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-      {landed.length > 0 && (
-        <section aria-label={`Landed in ${name}`}>
-          {landed.length > 3 ? (
-            <button
-              aria-expanded={more}
-              className={cn(heading, 'cursor-pointer outline-none hover:text-foreground')}
-              onClick={() =>
-                setUnfolded((previous) => [
-                  ...previous.filter((root) => root !== id),
-                  ...(more ? [] : [id]),
-                ])
-              }
-              type="button"
-            >
-              Landed
-              <ChevronRightIcon
-                className={cn('size-2.5 transition-transform', more && 'rotate-90')}
-              />
-              <span className="normal-case">{more ? 'fewer' : `${landed.length - 3} more`}</span>
-            </button>
-          ) : (
-            <h3 className={heading}>Landed</h3>
-          )}
-          <ul className="flex flex-col">
-            {shownLandings.map((event) => (
-              <LandingLine event={event} key={event.entry} now={now} root={id} />
-            ))}
-          </ul>
-        </section>
-      )}
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger
-          aria-label="Root actions"
-          className="invisible absolute top-1 right-1 flex size-5 cursor-pointer items-center justify-center rounded-sm text-muted-foreground outline-none group-focus-within:visible group-hover:visible pointer-coarse:visible hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:visible data-[state=open]:bg-sidebar-accent data-[state=open]:text-foreground"
-        >
-          <EllipsisIcon className="size-3.5" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-48 [&_[role=menuitem]]:cursor-pointer">
-          <DropdownMenuItem
-            className="text-[12.5px]"
-            disabled={tally?.since === undefined || working === 'self'}
-            onSelect={() => void api.action(CompactAction, { id })}
-          >
-            <FoldVerticalIcon />
-            Compact context
-          </DropdownMenuItem>
-          <DropdownMenuItem className="text-[12.5px]" onSelect={onTalk}>
-            <MessageCircleIcon />
-            Talk to @ultimate
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <button
+        aria-current={shown ? 'true' : undefined}
+        className={cn(
+          'mx-2 flex h-6 w-[calc(100%-1rem)] min-w-0 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-[42px] text-left font-mono text-[10px] text-muted-foreground/70 outline-none hover:bg-sidebar-accent/50 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+          shown && 'bg-sidebar-accent text-foreground',
+        )}
+        data-root-context={id}
+        onClick={openContext}
+        title="Every branch, abstract and landing, with breadcrumbs"
+        type="button"
+      >
+        <ScrollTextIcon className="size-3 shrink-0" />
+        <span className="truncate">History</span>
+        <span className="shrink-0 text-muted-foreground/50">#{id}</span>
+      </button>
     </div>
   )
 }

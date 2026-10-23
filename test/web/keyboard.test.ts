@@ -1,17 +1,20 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { CommandItem } from '../../web/src/sdk/registry.ts'
 
-const { runCommand, commands, context, ui } = vi.hoisted(() => ({
-  runCommand: vi.fn<(id: string) => void>(),
+const { runCommand, commands, ui } = vi.hoisted(() => ({
+  runCommand: vi.fn<(id: string, context: { conversationId?: number }) => void>(),
   commands: vi.fn<() => CommandItem[]>(),
-  context: {},
   ui: { paletteOpen: false },
 }))
 vi.mock('../../web/src/sdk/actions.ts', () => ({
-  actions: { runCommand },
+  runCommand,
   allCommands: commands,
-  currentContext: () => context,
+  // The shown conversation is 1; a key typed inside a scope names its own.
+  currentContext: (scoped?: number) => ({ conversationId: scoped ?? 1 }),
   applies: (command: { when?: () => boolean }) => command.when?.() !== false,
+}))
+vi.mock('../../web/src/sdk/conversation-scope.tsx', () => ({
+  scopeOf: (target: { scope?: number }) => target.scope,
 }))
 vi.mock('../../web/src/sdk/client.ts', () => ({
   store: { getState: () => ({ ui }), setUi: (change: object) => Object.assign(ui, change) },
@@ -36,6 +39,7 @@ it('respects typing, dialogs, sequences, timeout, composition and listener teard
     tagName = 'DIV'
     id = ''
     isContentEditable = false
+    scope?: number
   }
   class Input extends Element {
     override tagName = 'INPUT'
@@ -61,6 +65,7 @@ it('respects typing, dialogs, sequences, timeout, composition and listener teard
       { id: 'palette', keys: 'mod+k' },
       { id: 'sequence', keys: 'mod+k m' },
       { id: 'thinking', keys: 'shift+tab', whileTyping: true },
+      { id: 'stop', keys: 'escape', whileTyping: true },
       { id: 'hidden', keys: 'y', when: () => false },
     ].map((command) => ({ extension: 'test', title: command.id, run() {}, ...command })),
   )
@@ -90,7 +95,7 @@ it('respects typing, dialogs, sequences, timeout, composition and listener teard
   editable.isContentEditable = true
   expect(send('x', editable)).toBe(false)
   expect(send('x')).toBe(true)
-  expect(runCommand).toHaveBeenLastCalledWith('plain')
+  expect(runCommand).toHaveBeenLastCalledWith('plain', { conversationId: 1 })
   expect(send('y')).toBe(false)
   expect(send('x', input, { isComposing: true })).toBe(false)
   const calls = runCommand.mock.calls.length
@@ -101,14 +106,26 @@ it('respects typing, dialogs, sequences, timeout, composition and listener teard
   composer.composer = true
   composer.id = 'composer-input'
   expect(send('Tab', composer, { shiftKey: true })).toBe(true)
-  expect(runCommand).toHaveBeenLastCalledWith('thinking')
+  expect(runCommand).toHaveBeenLastCalledWith('thinking', { conversationId: 1 })
+  // Escape in a side chat's composer, or on any focused button of its pane, stops the side chat, never main.
+  const side = new Textarea()
+  side.composer = true
+  side.scope = 17
+  expect(send('Escape', side)).toBe(true)
+  expect(runCommand).toHaveBeenLastCalledWith('stop', { conversationId: 17 })
+  const sideButton = new Element()
+  sideButton.scope = 17
+  expect(send('Escape', sideButton)).toBe(true)
+  expect(runCommand).toHaveBeenLastCalledWith('stop', { conversationId: 17 })
+  expect(send('Escape')).toBe(true)
+  expect(runCommand).toHaveBeenLastCalledWith('stop', { conversationId: 1 })
   dialog.mockReturnValue({})
   expect(send('Tab', composer, { shiftKey: true })).toBe(false)
   dialog.mockReturnValue(null)
   expect(send('k', input, { ctrlKey: true })).toBe(true)
   ui.paletteOpen = true
   expect(send('m', input)).toBe(true)
-  expect(runCommand).toHaveBeenLastCalledWith('sequence')
+  expect(runCommand).toHaveBeenLastCalledWith('sequence', { conversationId: 1 })
   expect(ui.paletteOpen).toBe(false)
   send('k', input, { ctrlKey: true })
   ui.paletteOpen = true

@@ -105,13 +105,13 @@ it.concurrent('gates project resources, remembers choices, and applies onboardin
       readme: 'A local extension.',
     })
     // details: the contract summary, catalogue edges and refs events of a loaded extension; tool descriptions in info.
-    const board = await action('details', { name: 'board' })
-    expect(board.summary).not.toBe('')
-    expect(board.provides).toContain('board')
-    expect(board.needs).toContain('subagents')
-    expect(board.events).toEqual(expect.arrayContaining(['board.sent', 'board.triaged']))
+    const log = await action('details', { name: 'messages' })
+    expect(log.summary).not.toBe('')
+    expect(log.provides).toContain('messages')
+    expect(log.needs).toContain('subagents')
+    expect(log.events).toEqual(expect.arrayContaining(['board.sent', 'board.triaged']))
     expect(
-      server.extensions.info().find((entry) => entry.name === 'board')?.server?.tools,
+      server.extensions.info().find((entry) => entry.name === 'messages')?.server?.tools,
     ).toContainEqual({ name: 'message', description: expect.stringMatching(/\S/) })
     expect(
       (await post(server, '/api/extensions/onboarding/actions/details', { args: { name: 'nope' } }))
@@ -278,7 +278,7 @@ it.concurrent('offers setup only to named definitions, refuses inapplicable card
     )
     const choice = {
       card: 'extensions',
-      extensions: { board: true, faux: false },
+      extensions: { messages: true, faux: false },
       toolCallId: 'setup-1',
     }
     const receipts = await Promise.all(
@@ -298,20 +298,20 @@ it.concurrent('offers setup only to named definitions, refuses inapplicable card
     expect(entries[0].data).toEqual({
       card: choice.card,
       toolCallId: choice.toolCallId,
-      summary: 'enabled board; disabled faux',
+      summary: 'enabled messages; disabled faux',
     })
     expect(JSON.stringify(entries[0].model)).toContain(
-      'Setup choice (extensions): enabled board; disabled faux',
+      'Setup choice (extensions): enabled messages; disabled faux',
     )
     const otherTab = await post(server, '/api/extensions/onboarding/actions/choose', {
-      args: { ...choice, extensions: { board: false, faux: true } },
+      args: { ...choice, extensions: { messages: false, faux: true } },
       conversationId: conversation.id,
     })
     expect(otherTab.status).toBe(500)
     expect(otherTab.data.error).toContain('already has a different choice')
     expect(
       JSON.parse(await readFile(join(home, '.ultimate/settings.json'), 'utf8')).extensions,
-    ).toMatchObject({ enable: ['board'], disable: ['faux'] })
+    ).toMatchObject({ enable: ['messages'], disable: ['faux'] })
 
     // Fail after the setting is applied but before admission. Retrying must still notify the agent once.
     const retry = { card: 'project', local: true, toolCallId: 'retry-project' }
@@ -364,7 +364,7 @@ it.concurrent('offers setup only to named definitions, refuses inapplicable card
     ).toBe(200)
     expect(
       JSON.parse(await readFile(join(home, '.ultimate/settings.json'), 'utf8')).extensions,
-    ).toMatchObject({ enable: ['board', 'plan'], disable: ['faux', 'info'] })
+    ).toMatchObject({ enable: ['messages', 'plan'], disable: ['faux', 'info'] })
     expect(
       JSON.stringify(
         await run('codemode', {
