@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import {
   temp,
   removeTemp,
@@ -15,6 +15,7 @@ import type { ConversationView } from '@earendil-works/pi-durable'
 import { afterAll, afterEach } from 'vitest'
 import { scriptedModel } from './scripted-model.ts'
 import type { Answer, Turn } from './scripted-model.ts'
+import { restartFixture } from './restart-fixture.ts'
 
 /**
  * The model every launched Ultimate runs on: `restart yourself` calls `restart`; `demo` writes `scratch.txt` in the
@@ -67,6 +68,9 @@ export const copies = new Map<string, string>()
 export async function launch(home: string) {
   const ultimateRoot = copies.get(home) ?? (await sourceCopy(home))
   copies.set(home, ultimateRoot)
+  const restart = join(ultimateRoot, 'extensions/test-restart')
+  await mkdir(restart, { recursive: true })
+  await writeFile(join(restart, 'server.ts'), restartFixture)
   model ??= await scriptedModel(answer)
   const child = spawn(
     process.execPath,

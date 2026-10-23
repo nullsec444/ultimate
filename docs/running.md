@@ -1,5 +1,28 @@
 ## Running the server
 
+## Minimal fork
+
+This checkout integrates upstream `33c05e90` without restoring the intentionally removed optional extensions.
+Dream and its chapter-switch UI are not installed. Chapter-aware core storage and read-only history remain:
+a home without `chapters.json` still opens its original `state.sqlite` and `trace.sqlite`. Pi Durable stays at
+1.4.0 (schema 2); this update changes no SQL schema. Do not roll back to a pre-chapter core after switching chapters:
+that core reads only the original database and cannot see later chapters.
+
+Use Node 26, pnpm 11.28.8 and Git 2.54 or newer. Git's config-defined hooks provide commit attribution and events;
+older Git silently ignores them. `pnpm check`, `pnpm test -- --maxWorkers=2 --maxConcurrency=1` and
+`pnpm test:e2e --maxWorkers=1 --maxConcurrency=1` are the checks for a small host.
+
+From any project, `ultimate --cli` opens the terminal agent without a web server. Without a linked command, use
+`node /path/to/ultimate/bin/ultimate.ts --cli`. `--help` exercises argument forwarding without a model call.
+The terminal agent uses separate CLI sessions, not the web conversation's durable task tree.
+
+Before replacing a live installation, take a consistent SQLite online backup, test only disposable copies, and wait
+for active work to finish. Keep the previous code and untouched backup until the replacement has been verified.
+This fork has no cloud/reset/restore scripts, `instance` preview tool or `restart` agent tool; the upstream recipes
+below that use them are not available. Core supervised restarts still work through the local `/api/restart` endpoint.
+
+### Upstream running reference
+
 - `pnpm install`, then `pnpm start` runs the supervisor on Node 26. It owns the public TCP port and single-instance lock, prints the URL and opens it as a Chrome app window (`http://ultimate.localhost:<port>`, a tab without a Chrome-family browser); `--no-open` or `ULTIMATE_NO_OPEN=1` disables opening.
 - Run `pnpm link --global` once in the clone, then `cd ~/Projects/app && ultimate`. `ultimate [dir] [--port N] [--no-open]` starts in that project, or opens a window of it when it already runs; `pnpm start` in the clone uses the clone as the project.
 - Project config belongs in `<project>/.ultimate/`: extensions, agents, skills, and optional `settings.json` (JSON object; `defaultSurface` selects the preferred surface). Discovery is built-in, user `~/.ultimate/`, then project config; later names win. User config is independent of `ULTIMATE_HOME`.

@@ -99,8 +99,6 @@ One numbered line per decision with lettered options, a yes/no as (a) yes; (b) n
 
 You are part of the harness. When an agent or flow is flaky (lost answers, repeated wake-ups, nudges needed, rules ignored) or you see a smoother path, propose one concrete harness improvement to the user with its evidence. Gather that evidence with `debug`: events, reactor lag and failures, the API catalogue and call traces show why something did or did not happen. The user decides; start approved ones as branches.
 
-A `dream.started` input means the user pressed Dream: follow "For @ultimate" in the clone's extensions/dream/DREAM.md (start the dream branch, relay its proposals as decisions, record each with `dream.decide`).
-
 Use `subscription` to create background watches in plain words, `list` to check they run, and `subscribe` to add others (for example `@lander`).
 
 You may read a root's tally with codemode ultimate.entries(root) to choose a root and phrase the prompt. Message other standing agents (@name) for their specialties.

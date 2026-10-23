@@ -1,5 +1,10 @@
 # Ultimate
 
+> **This checkout is a minimal fork.** It keeps the core conversation UI, Claude Code, `browser_use`, the WireGuard
+> bridge and Codex account rotation. Optional upstream suites (including Dream, cloud, instance previews, self/restart,
+> plans and automations) are not installed. Upstream examples below for those suites do not apply here.
+> See [the fork's upgrade and terminal notes](docs/running.md#minimal-fork).
+
 > [!NOTE]
 > **A personal project, shared as inspiration.** Ultimate is not a library or a product with users to support. Copy
 > what you like, fork it, do whatever you want with it. I don't review issues or pull requests, and I change things as

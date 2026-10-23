@@ -1,7 +1,7 @@
 // A project home's chapters: databases side by side, one active at a time. The first chapter is the home itself
 // (`<home>/state.sqlite`), so a home that never switched has no chapters.json and nothing moves; later chapters live
 // in `<home>/chapters/<name>/`. A switch is journaled in pending-chapter.json and finished before storage opens
-// (`server/harness.ts`). See "Chapters" in extensions/dream/README.md.
+// (`server/harness.ts`). See "Minimal fork" in docs/running.md; this fork has no chapter-switch UI.
 import { existsSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
