@@ -9,6 +9,7 @@ import {
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { StatusAction } from './refs.ts'
+import { withClaudeToolIds } from './tool-ids.ts'
 
 export function createUltimateClaudeCodeProvider() {
   const provider = createClaudeCodeProvider()
@@ -20,9 +21,14 @@ export function createUltimateClaudeCodeProvider() {
           ? { ...model, thinkingLevelMap: { ...model.thinkingLevelMap, off: null } }
           : model,
       )
+  // Upstream passes tool ids from other providers straight into its frames; Anthropic rejects them.
+  const stream: typeof provider.stream = (model, context, options) =>
+    provider.stream(model, withClaudeToolIds(context), options)
+  const streamSimple: typeof provider.streamSimple = (model, context, options) =>
+    provider.streamSimple(model, withClaudeToolIds(context), options)
   // Both getters must adapt the current catalog, including discovered/restored rows.
   // Upstream exposes only chat models. Keep its transport and refresh implementation intact.
-  return { ...provider, getModels, getAllModels: getModels }
+  return { ...provider, getModels, getAllModels: getModels, stream, streamSimple }
 }
 
 export default function claudeCode(host: ExtensionHost) {
