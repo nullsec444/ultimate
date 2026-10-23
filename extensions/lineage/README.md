@@ -4,19 +4,21 @@ The UI calls a root's tally its **context** ("what every new branch starts from"
 document, tools and model-facing text, where agents and stored entries already use it.
 
 - **Branch** (action `branch`
-  `{ from, at?, prompt, images?, isolated?, model?, thinkingLevel? }` → `{ id }`). It forks the source at `at` (default: its latest entry) as an
+  `{ from, at?, prompt, title?, images?, isolated?, model?, thinkingLevel? }` → `{ id }`). It forks the source at `at` (default: its latest entry) as an
   ownerless conversation in the project root, optionally isolated in its own worktree. It inherits the source context
   (or, from a root with memories, starts at a memory brief: see Project memory), then the durable `lineage.prompt` task submits the prompt and images as its first
   input. Doc `lineage.branch` holds `{ from, at, intent }`; `inputAt` is when the branch was asked for, not inherited
   activity. The fork happens before the tree root receives a model-visible `lineage.branched` node
   `{ branch, at, intent, images?, from? }`, so the branch does not inherit its own node. The node's model text is one
-  line, `#<branch> started by <caller> from #<source>/<at>: <intent>`, where `intent` is the prompt's first 80
-  characters on one line (also the branch's title until its summary names it); the prompt and its images stay in the
-  branch's own first input, so later branches never inherit them. Nodes written before this carried the whole prompt;
+  line, `#<branch> started by <caller> from #<source>/<at>: <intent>`, where `intent` is the `title` the starter gave
+  (one line, at most 60 characters), else the prompt's first 80 characters on one line; either is also the branch's
+  title until its summary names it. The prompt and its images stay in the branch's own first input, so later branches
+  never inherit them. Nodes written before this carried the whole prompt;
   they are not rewritten and shrink at the next compaction. `from` is present
   when the source is not the root; that source also gets a display-only marker. The forking commit emits the durable
-  event `lineage.branched` `{ id, from, at, intent }` (`Branched` in `api.ts`); lineage's own `named` reactor (for it
-  and `lineage.rooted`) has conversations mark the intent title as generated (`generatedTitle`). Lineage provides
+  event `lineage.branched` `{ id, from, at, intent, title? }` (`Branched` in `api.ts`); lineage's own `named` reactor
+  (for it and `lineage.rooted`) has conversations mark that title as generated (`generatedTitle`), so the summary model
+  still replaces a given title. Lineage provides
   conversations' `conversations.trees` point (`rootOf`, `branchOf`, `abstract`) that summaries use. Plan reads `Branch` (also in `api.ts`) and empties the inherited plan in the commit
   that places the branch's first input.
 - **Roots**: doc `lineage.roots` on conversation 1 (`{ roots }`, initially `[1]`) lists the roots. Clients stream it
@@ -31,7 +33,7 @@ document, tools and model-facing text, where agents and stored entries already u
   unlisting is how a mistaken or abandoned root stops being offered to `branch`.
   `recent` `{ id, limit?, types? }` → `RootEvent[]` (`types.ts`) lists a listed root's newest events, newest first
   (default 3, at most 20; only the given `types` when set): landings `{ sha, base?, commits, feature?, title?, from?,
-compare? }` (`commits` counts the note's listed commits plus `more`), other notes `{ from?, text }`, new branches
+  compare? }` (`commits` counts the note's listed commits plus `more`), other notes `{ from?, text }`, new branches
   `{ branch, intent }`, compactions, and the genesis (`started`), each with its `entry` and `at`. With a GitHub
   `origin`, a landing's `compare` is `https://diffshub.com/<owner>/<repo>/compare/<base>...<sha>` (DiffsHub's view of the GitHub range); a note from before
   landings recorded `base` uses the landing before it, which is where the lander's serial queue left the target.
@@ -110,8 +112,9 @@ compare? }` (`commits` counts the note's listed commits plus `more`), other note
   (`summaryModelStatus()`) and memoizes it; without one it completes without asking. It memoizes its input (the
   landing note's text, the submitter's abstract, frozen into the landing or still open, and every memory in full) and
   the summary model's answer, then asks for JSON `{"ops": [...]}` under rules that default to no ops, prefer updating
-  to near-duplicates, delete or rewrite memories a landing removes or replaces, and merge at the cap. The whole answer
-  must be that object, at most inside one enclosing code fence: prose, an array or extra keys refuse it; adds and
+  to near-duplicates, delete or rewrite memories a landing removes or replaces, and merge at the cap, with one example
+  answer. The parser takes the one object with an `ops` array (extra keys ignored) or a bare array of ops, also inside
+  one code fence or between prose; two fences, no batch or invalid JSON refuse it, the last with the JSON error; adds and
   updates take the landing's `#<submitter>/<at>` as source. The ops commit with the task's completion, so a resumed task applies them once. An unparsable answer or a refused batch writes nothing and is asked once
   more with the refused answer and the reason appended (a memo of its own); when that is refused too, it leaves a notice. The landing itself never fails on it.
 - **Go back** (`rewind.ts`, `rewind.tsx`): the message action **Go back to here** on any stored message of a non-root

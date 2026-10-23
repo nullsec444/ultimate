@@ -1,4 +1,5 @@
 import { hostname } from 'node:os'
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { eventHost, temp, removeTemp, until, fauxServer, linkDependencies } from './helpers.ts'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -86,7 +87,12 @@ async function fixture(
     join(home, 'agents/coordinator.md'),
     await readFile(resolve('agents/coordinator.md'), 'utf8'),
   )
-  const prepared = await prepareHarness({ home, ultimateRoot: home, userHome: home, faux: true })
+  const prepared = await prepareHarness({
+    home,
+    ultimateRoot: home,
+    userHome: home,
+    faux: fauxProvider(),
+  })
   let opened: OpenHost
   let service!: MessagesService
   const hold = gate()
@@ -859,7 +865,7 @@ export default (host) => {
     ultimateRoot: home,
     projectRoot: home,
     userHome: home,
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
 }

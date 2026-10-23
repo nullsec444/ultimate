@@ -329,7 +329,14 @@ export default function workspaceExtension(host: ExtensionHost) {
         await service.ready(input.conversationId, caller)
         const own = await service.get(input.conversationId, caller)
         if (!own) return undefined
-        return `Workspace: ${own.path} (branch ${own.branch}).\nSource: ${own.source}, target: ${own.target}.\n\`workspace status\` shows both tips. Finish with \`workspace submit\` once your tip is committed and verified: the lander merges it into ${own.target} with whatever landed meanwhile, runs the project's checks, fast-forwards ${own.target}, pushes when configured, and reports the outcome back to you as a message; keep working meanwhile and do not merge ${own.target} yourself first. \`workspace land\` is the synchronous alternative: it only fast-forwards ${own.target} to your tip and never rebases or pushes.`
+        const head = `Workspace: ${own.path} (branch ${own.branch}).\nSource: ${own.source}, target: ${own.target}.\n\`workspace status\` shows both tips.`
+        // Ownership never changes, so each conversation keeps one fixed text.
+        const row = await host
+          .harness()
+          .commit((tx) => tx.conversation(input.conversationId), caller)
+        if (row?.owner)
+          return `${head} You are a subagent: commit your verified work in this worktree and report the commit to your owner, who lands it. Only a top-level conversation can \`workspace submit\` or \`workspace land\`.`
+        return `${head} Finish with \`workspace submit\` once your tip is committed and verified: the lander merges it into ${own.target} with whatever landed meanwhile, runs the project's checks, fast-forwards ${own.target}, pushes when configured, and reports the outcome back to you as a message; keep working meanwhile and do not merge ${own.target} yourself first. \`workspace land\` is the synchronous alternative: it only fast-forwards ${own.target} to your tip and never rebases or pushes.`
       }),
     ],
   })

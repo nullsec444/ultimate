@@ -213,19 +213,35 @@ it.concurrent('starts a branch from the memory brief, and without memories from 
   ).toContain("starts with your project's memory index")
 })
 
-it('accepts only one whole {ops} object as a memorize answer', () => {
-  const ops = [{ op: 'delete', slug: 'pnpm' }]
-  expect(parseMemoryOps(JSON.stringify({ ops }))).toEqual(ops)
-  expect(parseMemoryOps(`\`\`\`json\n${JSON.stringify({ ops })}\n\`\`\``)).toEqual(ops)
+it('finds the one batch of ops in a memorize answer, wrapped or not', () => {
+  const ops = [
+    { op: 'delete', slug: 'pnpm' },
+    { op: 'update', slug: 'git', body: 'a {b} [c]' },
+  ]
+  const json = JSON.stringify({ ops })
   for (const answer of [
-    JSON.stringify([{ ops }]),
-    JSON.stringify({ ops, note: 'extra' }),
-    'null',
-    `I would not answer ${JSON.stringify({ ops })} here: the landing changes nothing.`,
-    `I can't help with that.\n${JSON.stringify({ ops })}`,
-    `\`\`\`json\n${JSON.stringify({ ops })}\n\`\`\`\n\`\`\`json\n{"ops":[]}\n\`\`\``,
+    json,
+    `\`\`\`json\n${json}\n\`\`\``,
+    `Here is the batch:\n\`\`\`json\n${json}\n\`\`\`\nDone.`,
+    `Here is the batch: ${json} — two memories change.`,
+    JSON.stringify({ ops, reason: 'the landing replaced pnpm' }),
+    JSON.stringify(ops),
+    `Ops: ${JSON.stringify(ops)}`,
   ])
-    expect(() => parseMemoryOps(answer)).toThrow('expected only {"ops": [...]}')
+    expect(parseMemoryOps(answer)).toEqual(ops)
+  expect(parseMemoryOps('{"ops":[]}\nNothing here is worth remembering.')).toEqual([])
+  for (const answer of [
+    'null',
+    '{"op":"delete","slug":"pnpm"}',
+    'Sure! Here are the ops: none',
+    `\`\`\`json\n${json}\n\`\`\`\n\`\`\`json\n{"ops":[]}\n\`\`\``,
+    `${json}\n${json}`,
+  ])
+    expect(() => parseMemoryOps(answer)).toThrow('expected {"ops": [...]}')
+  // A raw newline inside a string is not JSON; the reason names the JSON error so the retry can fix it.
+  expect(() => parseMemoryOps('{"ops":[{"op":"update","slug":"git","body":"a\nb"}]}')).toThrow(
+    /not valid JSON: .*control character/i,
+  )
 })
 
 it.concurrent('forks of a briefed branch inherit the tally tip its brief covers', async () => {
@@ -408,11 +424,17 @@ it.concurrent('distils each landing into memory once and writes nothing from a r
   expect(state.asked[2]).toContain(long)
   expect((await memories(server)).retried).toMatchObject({ line: 'Short enough' })
 
+  // An empty batch with commentary writes nothing and is not retried, so it leaves no notice.
+  state.memorize = '{"ops":[]}\nNothing here is worth remembering.'
+  await land(landing('empty', id))
+  await settledTasks(server, 3)
+  expect(state.asked).toHaveLength(4)
+
   // A malformed answer, and a batch applyMemoryOps refuses, write nothing, retried or not.
   const before = await memories(server)
   state.memorize = 'Sure! Here are the ops: none'
   await land(landing('s2', id))
-  await settledTasks(server, 3)
+  await settledTasks(server, 4)
   state.memorize = JSON.stringify({
     ops: [
       { op: 'add', slug: 'fine', kind: 'fact', line: 'Fine', body: 'Fine.' },
@@ -420,9 +442,9 @@ it.concurrent('distils each landing into memory once and writes nothing from a r
     ],
   })
   await land(landing('s3', id))
-  await settledTasks(server, 4)
-  expect(state.asked).toHaveLength(7)
-  expect(state.asked[6]).toContain('Op 2: no memory missing')
+  await settledTasks(server, 5)
+  expect(state.asked).toHaveLength(8)
+  expect(state.asked[7]).toContain('Op 2: no memory missing')
   expect(await memories(server)).toEqual(before)
 
   // Receipts are never evicted: after more than 100 further landings, the first again starts no task.
@@ -431,7 +453,7 @@ it.concurrent('distils each landing into memory once and writes nothing from a r
     for (let index = 0; index < 101; index++)
       await emit(tx, SubmissionLanded, landing(`bulk-${index}`, id))
   }, context)
-  await settledTasks(server, 105)
+  await settledTasks(server, 106)
   const repeat = (await land(landing('s1', id))).id
   await until(
     async () =>
@@ -439,7 +461,7 @@ it.concurrent('distils each landing into memory once and writes nothing from a r
         'lineage/memorize'
       ] ?? 0) >= repeat,
   )
-  expect(await memorizeTasks(server)).toHaveLength(105)
+  expect(await memorizeTasks(server)).toHaveLength(106)
 })
 
 it.concurrent('a fresh memorize reactor skips landings from before it and distils new ones', async () => {

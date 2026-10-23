@@ -1,10 +1,14 @@
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  fauxProvider,
+} from '@earendil-works/pi-ai/providers/faux'
 import { Type } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { ProjectTrustStore } from '@earendil-works/pi-coding-agent'
-import type { ToolExecutionResult } from '@earendil-works/pi-durable'
+import type { ConversationId, ToolExecutionResult } from '@earendil-works/pi-durable'
 import { afterEach, expect, it } from 'vitest'
 import {
   copyApis,
@@ -17,6 +21,8 @@ import {
   post,
 } from './helpers.ts'
 import { context } from '../server/harness.ts'
+import { Metadata } from '../server/metadata.ts'
+import { FIRST_CHAPTER, requestChapter } from '../lib/chapters.ts'
 import { Store, SummaryDoc } from '../extensions/codemode/server.ts'
 import { Summarized } from '../extensions/codemode/refs.ts'
 import type { CallTree } from '../server/trace.ts'
@@ -53,14 +59,14 @@ async function fixture() {
       .replace("'../../lib/agents.ts'", JSON.stringify(resolve('lib/agents.ts')))
       .replace("'../../lib/api-files.ts'", JSON.stringify(resolve('lib/api-files.ts'))),
   )
-  for (const file of ['api.ts', 'projects.ts', 'refs.ts', 'summary.ts'])
+  for (const file of ['api.ts', 'chapters.ts', 'projects.ts', 'refs.ts', 'summary.ts'])
     await cp(resolve('extensions/codemode', file), join(ultimateRoot, 'extensions/codemode', file))
   const options = {
     ultimateRoot,
     projectRoot: ultimateRoot,
     userHome: directory,
     home: join(directory, 'home'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   }
   const server = await createServer(options)
@@ -69,8 +75,65 @@ async function fixture() {
   expect(
     server.extensions.info().find((extension) => extension.name === 'codemode')?.server?.error,
   ).toBeUndefined()
+  // A file for scripts to read.
+  await writeFile(join(server.host.home, 'scratch.txt'), 'before\n')
   return { server, options }
 }
+it('reads an inactive chapter through the sandbox and rejects project with chapter', async () => {
+  const { server, options } = await fixture()
+  await server.harness.commit(async (tx) => {
+    await tx.appendEntry(server.root.id, {
+      kind: 'chapter.note',
+      data: { text: 'closed-chapter-needle' },
+    })
+  }, context)
+  const long = (
+    (
+      await post(server, '/api/conversations', {
+        title: `Closed chapter work ${'with a long prompt '.repeat(400)}`,
+      })
+    ).data as { id: number }
+  ).id
+  const live = (await server.root.entries({}, 100, undefined, context)).items.filter(
+    (entry) => entry.kind === 'chapter.note',
+  )
+  await server.vite.watcher.close()
+  await server.close()
+  servers.splice(servers.indexOf(server), 1)
+  await requestChapter(options.home, 'next')
+  const next = await createServer(options)
+  servers.push(next)
+  const result = await run(
+    next,
+    `return {
+    entries: await ultimate.entries(${server.root.id}, { chapter: '${FIRST_CHAPTER}', kinds: ['chapter.note'] }),
+    search: await ultimate.search('closed-chapter-needle', { chapter: '${FIRST_CHAPTER}', limit: 1 }),
+    conversations: await ultimate.conversations({ chapter: '${FIRST_CHAPTER}' })
+  };`,
+  )
+  expect(result.data.isError).not.toBe(true)
+  expect(result.data.details.value).toMatchObject({
+    entries: live,
+    search: live,
+    conversations: expect.arrayContaining([
+      expect.objectContaining({ id: server.root.id }),
+      expect.objectContaining({
+        id: long,
+        title: expect.stringMatching(/^Closed chapter work with a long prompt .*…$/),
+      }),
+    ]),
+  })
+  const { conversations } = result.data.details.value as {
+    conversations: { id: number; title: string }[]
+  }
+  expect(conversations.find((item) => item.id === long)!.title.length).toBeLessThanOrEqual(60)
+  const conflict = await run(
+    next,
+    `return await ultimate.entries(1, { project: 'anything', chapter: '${FIRST_CHAPTER}' });`,
+  )
+  expect(conflict.data.details.error).toContain('chapter and project cannot be used together')
+})
+
 it('keeps codemode guidance without repeating top-level tool schemas', async () => {
   const { server } = await fixture()
   const agent = await server.root.agent(context)
@@ -412,7 +475,7 @@ it('logs ultimate helper calls and labels a one-call script by its call id, with
 
 it('composes read and bash with private nested results and final JSON details', async () => {
   const { server } = await fixture()
-  const path = join(server.host.home, 'demo.txt')
+  const path = join(server.host.home, 'scratch.txt')
   const result = await run(
     server,
     `const source = await tools.read({path:${JSON.stringify(path)}}); const shell = await tools.bash({command:'echo nested-private'}); text(source.trim()); return {length:shell.length};`,
@@ -568,6 +631,31 @@ it('lists conversations with their title and cwd, since the prompt no longer doe
   })
 })
 
+it('lists conversations whose titles are whole prompts with short titles, far below the read limit', async () => {
+  const { server } = await fixture()
+  const prompt = `Rewrite the parser ${'and keep every token '.repeat(300)}`
+  expect(prompt.length).toBeGreaterThan(6000)
+  const ids = await Promise.all(
+    Array.from(
+      { length: 40 },
+      async () =>
+        ((await post(server, '/api/conversations', { title: prompt })).data as { id: number }).id,
+    ),
+  )
+  const result = await run(server, `return await ultimate.conversations()`)
+  expect(result.data.isError).toBe(false)
+  const listed = result.data.details.value as { id: number; title?: string }[]
+  for (const item of listed.filter((entry) => ids.includes(entry.id))) {
+    expect(item.title).toMatch(/^Rewrite the parser and keep every token .*…$/)
+    expect(item.title!.length).toBeLessThanOrEqual(60)
+  }
+  // Full titles would make this listing 40 × 6,000 characters; short ones keep it to a few kilobytes.
+  expect(JSON.stringify(listed).length).toBeLessThan(20_000)
+  // The stored title is untouched.
+  const stored = await server.harness.snapshot(Metadata, ids[0] as ConversationId, context)
+  expect(stored?.title).toBe(prompt)
+})
+
 it("lists project agents once the project's setup is trusted, and says when it is not", async () => {
   const { server, options } = await fixture()
   await mkdir(join(options.projectRoot, '.ultimate/agents'), { recursive: true })
@@ -639,7 +727,7 @@ it('aborts nested work without committing store writes', async () => {
     fauxAssistantMessage(
       [
         fauxToolCall('codemode', {
-          code: `await tools.read({path:${JSON.stringify(join(server.host.home, 'demo.txt'))}}); await tools.bash({command:'sleep 30'}); store('aborted', true);`,
+          code: `await tools.read({path:${JSON.stringify(join(server.host.home, 'scratch.txt'))}}); await tools.bash({command:'sleep 30'}); store('aborted', true);`,
         }),
       ],
       { stopReason: 'toolUse' },
@@ -839,7 +927,7 @@ it('recovers an unsafe interrupted script with its committed nested-call log', a
     fauxAssistantMessage(
       [
         fauxToolCall('codemode', {
-          code: `await tools.read({path:${JSON.stringify(join(server.host.home, 'demo.txt'))}}); await tools.bash({command:'sleep 30'}); store('finished', true);`,
+          code: `await tools.read({path:${JSON.stringify(join(server.host.home, 'scratch.txt'))}}); await tools.bash({command:'sleep 30'}); store('finished', true);`,
         }),
       ],
       { stopReason: 'toolUse' },

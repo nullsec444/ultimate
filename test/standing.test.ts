@@ -1,3 +1,4 @@
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 // Harness tests use the faux provider without token pacing.
 import { eventHost, idleNeed, temp, removeTemp } from './helpers.ts'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -38,7 +39,7 @@ async function fixture() {
     ultimateRoot: path,
     userHome: path,
     home: join(path, 'state'),
-    faux: true,
+    faux: fauxProvider({ models: [{ id: 'faux-1', reasoning: true }] }),
   })
   const tool = defineTool({
     name: 't',

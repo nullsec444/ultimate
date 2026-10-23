@@ -11,9 +11,19 @@
 - Binds only `127.0.0.1`; `--port` or `ULTIMATE_PORT` overrides selection, otherwise the supervisor chooses the first free port from `4747`.
 - `ULTIMATE_HOME` overrides state storage; the default is `~/.ultimate/projects/<basename>-<sha256(projectRoot) first 8 hex>/`. Different projects can run concurrently. Never run two storage owners on the same home.
 - `ULTIMATE_GENERATION` defaults to `1` and labels the process in system info.
-- `ULTIMATE_FAUX=1` uses a looping demo provider without tokens; its tools edit only a scratch file in the home.
 - Pi's models, settings, and auth are shared with `~/.pi/agent`; the `models` extension logs in to providers.
-- `pnpm check` checks format/lint/types; `pnpm test` runs the fast in-process faux tests with temporary homes (about 20 s today); `pnpm test:e2e` runs `test/e2e`, the tests that spawn real supervisors and instances. There are no browser tests: UI is verified on a faux instance with screenshot or browser.
+- `pnpm check` checks format/lint/types; `pnpm test` runs the fast in-process tests with temporary homes (about 60 s today), each scripting its model responses on Pi's faux provider (`prepareHarness({ faux })`, test-only); `pnpm test:e2e` runs `test/e2e`, the tests that spawn real supervisors and instances, on a scripted OpenAI-compatible endpoint (`test/e2e/scripted-model.ts`). Test servers find no Tailscale CLI (`TAILSCALE_COMMAND`), so they stay off the tailnet.
+- UI and behaviour are verified on a preview: `instance start` runs a clean Ultimate on the configured models (its own home; provider logins are read from `~/.pi/agent`, never copied). Seed it by prompting it as a user would, then look with screenshot or browser. It spends tokens; stop it when done.
+- Restart and chapter-switch flows need a supervised scratch server, since a preview runs `server/main.ts` without the
+  supervisor and cannot restart. From the checkout under test:
+  `ULTIMATE_HOME=$(mktemp -d) pnpm start --port 4799 --no-open`. Tailscale follows user settings, so with it on there
+  the scratch server publishes on the tailnet for Daniel to open remotely. Stop it and delete the scratch home when done.
+  A state you cannot reach is reported as unverified, never faked by injecting entries.
+- Transcript UI on a preview: prompt until the conversation is long, then check
+  1. scrollback: scroll up and back down; nothing jumps or reflows;
+  2. live streaming: watch a reply and its tool calls stream in;
+  3. folding and grouping: fold and unfold tool calls and update groups;
+  4. phone width: screenshot at `width: 390`.
 - `tsconfig.swap.json` is the server-only type-check gate for swaps.
 - `tsconfig.json` (server, tests, tooling) references `tsconfig.web.json` (browser: `web/src`, `extensions/**/*.tsx`).
   `pnpm check` type-checks both; with plain `tsc`, run `tsc -b`.
@@ -22,7 +32,8 @@
 ## Starting fresh
 
 `pnpm reset [dir] [--dry-run] [--yes]` starts a project's Ultimate from an empty state. It deletes nothing: `state.sqlite`, `trace.sqlite`, parked `state.stale-*` databases (each with its
-`-wal`/`-shm`), `conversations.json`, `previews.json` and `supervisor.log` move to
+`-wal`/`-shm`), every later chapter (`chapters/`, `chapters.json`, `pending-chapter.json`), `conversations.json`,
+`previews.json` and `supervisor.log` move to
 `~/.ultimate/backups/reset-<time>/<home>/`, and it prints that folder and the `mv` that restores it.
 
 - Stop Ultimate first (`systemctl --user stop ultimate`); it refuses while the

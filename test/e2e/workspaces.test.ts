@@ -34,7 +34,6 @@ async function reopen(paths: Awaited<ReturnType<typeof repository>>, commands: s
     ...paths,
     userHome: paths.directory,
     ultimateRoot: paths.projectRoot,
-    faux: true,
   })
   let opened: Awaited<ReturnType<typeof prepared.open>>
   const resources = new Map<string, unknown>()
@@ -79,7 +78,7 @@ it.each(['symlinked home mid-setup', 'branch creation before registration'])(
     import { prepareHarness, context } from './server/harness.ts';
     import extension, { actions } from './extensions/workspaces/server.ts';
     const paths = ${JSON.stringify(paths)};
-    const prepared = await prepareHarness({ ...paths, ultimateRoot: paths.projectRoot, userHome: paths.directory, faux: true });
+    const prepared = await prepareHarness({ ...paths, ultimateRoot: paths.projectRoot, userHome: paths.directory });
     let opened;
     const resources = new Map();
     const host = { ...prepared, harness: () => opened.harness, metadata: (await import('./server/metadata.ts')).Metadata,

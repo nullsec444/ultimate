@@ -2,8 +2,7 @@ Inline setup choices, the first-run prerequisites, and the Extensions panel that
 
 ## First run
 
-The first run has only **Get ready**: connect a provider and choose an available model. The faux demo model also
-counts as ready. Continue waits for both, starts onboarding with @ultimate through `onDone`, then records `firstRunDone`;
+The first run has only **Get ready**: connect a provider and choose an available model. Continue waits for both, starts onboarding with @ultimate through `onDone`, then records `firstRunDone`;
 there is no second page. Escape or the close button records completion without changing settings. Closing returns
 focus to the composer. An automated browser (`navigator.webdriver`) does not get this dialog.
 
@@ -22,7 +21,6 @@ so Start here can show **@ultimate is setting up this project · open** across r
 with the user able to steer. It writes the root's first memories with `remember` (the user's instructions verbatim among them), suggests at most three useful
 project-specific agents, extensions or settings, and builds only what the user chooses. The first feature becomes a
 coordinator through `branch`. Roots stay read-only while @ultimate handles setup.
-Under faux the same flow is scripted without model tokens (see `faux/README.md`).
 
 ## Setup cards
 
@@ -33,9 +31,12 @@ the agent should wait for an `onboarding.choice` input before continuing.
 The tool renderer shows a quiet, transcript-width card:
 
 - **Extensions:** recommended extensions as checkboxes, initially checked unless the user's settings disable them.
+  The default-off built-ins (`cloud`, `parallel`, `tailscale`, `update`, `health`, `classify`, `phase`, `sounds`;
+  see [settings](../../docs/settings.md)) start unchecked unless the user's settings enable them, each with one line
+  on what it needs (a key, a service, a Worker).
   Core-tier extensions (`ExtensionInfo.core`, such as `subagents`, `messages`, `lineage`, `onboarding` and `documents`)
   stay checked and disabled with "core, always on": the server keeps them enabled whatever the settings say. Dependencies are checked with their extension (`automations` needs
-  `subagents`, `parallel` needs `secrets`).
+  `subagents`, `phase` needs `classify`).
   Continue applies user-global choices with `applyFirstRun`. Both checked and unchecked choices are saved explicitly;
   project settings can still override user settings.
 - **Project:** "Use this project's setup?", chips showing its extensions, settings, agents and skills, and its
@@ -69,8 +70,9 @@ The Git status is read again whenever the shown conversation finishes a run, inc
 ## Extensions panel
 
 The right-panel tab (palette **Extensions…**) shows the project decision, a way to change it, Use this project's setup
-everywhere, and every extension with its source, deciding layer, README line and switch. Switches save to this project
-(when its setup is in use) or everywhere. A core-tier extension's switch stays on and disabled, its deciding layer
+everywhere, and every extension with its source, deciding layer, README line and switch. Switches save everywhere
+(`~/.ultimate/settings.json`) unless you pick this project (when its setup is in use): a project's settings file is
+usually committed, so a personal toggle never lands there by default. A core-tier extension's switch stays on and disabled, its deciding layer
 reads `core`: the server keeps the core tier enabled whatever the settings say. Failures show on the row; the list
 follows system info. Clicking a row opens it in place (open rows are kept in UI state): its tools with their
 description's first line, contract summary, what it provides, needs and wants, actions, documents, events, web

@@ -352,6 +352,31 @@ it.concurrent('keeps a long prompt out of the tally: one intent line, the prompt
   expect((await server.harness.snapshot(Branch, id, context))?.branch?.intent).toBe(prompt)
 })
 
+it.concurrent('a given title names the branch and its tally line until a summary renames it', async () => {
+  const { server } = await fixture()
+  const prompt =
+    `Size: small, clear change.\n\n${'Every detail of the plan goes here. '.repeat(20)}`.trim()
+  const id = await branchFrom(server, { from: 1, prompt, title: '  Branch\n titles  ' })
+  await settled(server, id)
+  // The title, on one line, names the branch and its tally node; the prompt stays the branch's intent.
+  const node = (await server.root.context(context)).entries.findLast(
+    (entry) => entry.kind === 'lineage.branched',
+  )!
+  const { at } = node.data as { at: number }
+  expect(node.data).toEqual({ branch: id, at, intent: 'Branch titles' })
+  expect(textOf(node.model?.[0]?.content)).toBe(`#${id} started from #1/${at}: Branch titles`)
+  expect((await server.harness.snapshot(Branch, id, context))?.branch?.intent).toBe(prompt)
+  expect((await server.harness.snapshot(Metadata, id, context))?.title).toBe('Branch titles')
+  // The given title counts as generated, which is what lets the summary replace it later (summary.ts).
+  await until(
+    async () =>
+      (await server.harness.snapshot(Summaries, id, context))?.generatedTitle === 'Branch titles',
+  )
+  // A long title is cut like an intent line, at 60 characters.
+  const long = await branchFrom(server, { from: 1, prompt: 'Work', title: 'x'.repeat(70) })
+  expect((await server.harness.snapshot(Metadata, long, context))?.title).toBe(`${'x'.repeat(59)}…`)
+})
+
 it.concurrent('writes the prompt node of a branch of a branch into the tree root and marks its source', async () => {
   const { server, requests } = await fixture()
   const first = await branchFrom(server, { from: 1, prompt: 'First line' })

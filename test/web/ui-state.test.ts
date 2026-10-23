@@ -288,4 +288,20 @@ describe('durable UI state', () => {
     expect(state.get('panel')).toBe('second')
     expect(requests[1].change.set).toEqual({ panel: 'second' })
   })
+
+  it('keeps a detached page’s writes to itself: applied, kept, never sent', async () => {
+    // A page an agent drives: its `?conversation=1` must not move the user's tabs.
+    const state = createUiState(undefined, { delayMs: 5 })
+    state.receive({ 'shell.conversation': 42, 'shell.panel': 'info', [UI_REVISION]: 7 })
+    state.set('shell.conversation', 1)
+    state.delete('shell.panel')
+    await wait()
+    state.flush()
+    expect(state.get('shell.conversation')).toBe(1)
+    expect(state.get('shell.panel')).toBeUndefined()
+    // A later snapshot leaves the page's own writes in place.
+    state.receive({ 'shell.conversation': 43, 'shell.panel': 'info', [UI_REVISION]: 8 })
+    expect(state.get('shell.conversation')).toBe(1)
+    expect(state.get('shell.panel')).toBeUndefined()
+  })
 })

@@ -11,6 +11,8 @@ import type { UiUpdateRequest, UiUpdateResponse } from '../../../shared/protocol
  * but a reconnect starts from a snapshot that may predate this tab's newest write; ordered by revision, a snapshot
  * older than one already shown is dropped, and a write stays until the stream reaches its revision. Equal values are
  * never taken as confirmation (A → B → A), and the latest commit wins across tabs and devices.
+ *
+ * Without `write`, the page keeps its state to itself: writes apply locally and stay, nothing reaches the server.
  */
 export type UiValues = Readonly<Record<string, JsonValue>>
 
@@ -29,7 +31,7 @@ const revision = (values: UiValues) => {
 }
 
 export function createUiState(
-  write: (change: UiUpdateRequest) => Promise<UiUpdateResponse>,
+  write: ((change: UiUpdateRequest) => Promise<UiUpdateResponse>) | undefined,
   options: { delayMs?: number; onError?: (error: unknown) => void } = {},
 ) {
   const listeners = new Set<() => void>()
@@ -72,7 +74,7 @@ export function createUiState(
    * `force` sends anyway, for a page that is going away.
    */
   function send(force: boolean) {
-    if (inFlight && !force) return
+    if (!write || (inFlight && !force)) return
     const change: UiUpdateRequest = { set: {}, delete: [] }
     const batch = sent + 1
     let count = 0

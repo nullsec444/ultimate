@@ -1,5 +1,9 @@
 import { Type } from '@earendil-works/pi-ai'
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  fauxProvider,
+} from '@earendil-works/pi-ai/providers/faux'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 import type { NestedToolExecutionResult } from '@earendil-works/pi-durable'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,7 +18,12 @@ it.each([true, false])(
   'delivers the browser result through Pi to nested tools (success=%s)',
   async (success) => {
     const home = await temp('ultimate-browser-use-')
-    const prepared = await prepareHarness({ home, ultimateRoot: home, userHome: home, faux: true })
+    const prepared = await prepareHarness({
+      home,
+      ultimateRoot: home,
+      userHome: home,
+      faux: fauxProvider(),
+    })
     const result = { success, steps: 2, urls: ['https://example.com/'], result: 'Example Domain' }
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(result)))
     const extension = browserUse({} as ExtensionHost)

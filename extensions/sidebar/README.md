@@ -41,7 +41,7 @@ and Scheduled sections of the `sidebar.top` slot draw the same heading. Top to b
   entry does.
 - **Memory**: one row per root (`MemoryRow`, `root.tsx`) with a brain mark, the brief's size (what every new branch
   starts from; the whole context's while it has no memories) and its memories counted by kind (`4 decisions · 5 facts
-· 3 lessons`). Clicking it opens lineage's **Memory** panel, grouped into decisions, facts and lessons (empty until
+  · 3 lessons`). Clicking it opens lineage's **Memory** panel, grouped into decisions, facts and lessons (empty until
   @ultimate remembers something). Below it, a quiet **History #id** line opens the root's tally, the
   browsable history (every branch, abstract and landing), whose footer offers Compact (lineage `compact {id}`) and
   Talk to @ultimate. The row has no menu; a root is never renamed, cleared or concluded here.

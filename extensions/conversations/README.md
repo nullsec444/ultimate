@@ -126,7 +126,7 @@ task. A task that finds no available model before it chose one settles quietly t
 the project is chosen) names the model for titles, summaries, reply summaries, question extraction and tree abstracts as
 `provider/id[:thinking]`, an exact provider and model id with an optional Pi thinking level, clamped to what the model
 supports (medium when omitted). Unset, it is `DEFAULT_SUMMARY_MODEL`: GPT-6 Luna with medium thinking through the
-current OpenAI provider (including Sign in with ChatGPT). In faux mode, the unset default is `faux/faux-1` with thinking off. `summary-model.ts` reads it when a request is considered and again when a
+current OpenAI provider (including Sign in with ChatGPT). `summary-model.ts` reads it when a request is considered and again when a
 task starts asking, so changes apply to the next request without a restart. Each task stores the resolved
 `{ provider, id, thinking }` in its `model` memo before asking: a resumed task asks the same model even after the
 setting changed. A malformed value shows one notice and turns summaries off; a well-formed model that is unknown or

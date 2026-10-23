@@ -1,5 +1,9 @@
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import {
+  fauxAssistantMessage,
+  fauxToolCall,
+  fauxProvider,
+} from '@earendil-works/pi-ai/providers/faux'
 import { defineDoc, defineExtension, GenerationTask, hook } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
 import { prepareHarness } from '../server/harness.ts'
@@ -22,7 +26,12 @@ it('places hook entries transactionally before initial and queued run inputs, no
   let reject = false
   let calls = 0
   const open = async () => {
-    const prepared = await prepareHarness({ ultimateRoot: home, userHome: home, home, faux: true })
+    const prepared = await prepareHarness({
+      ultimateRoot: home,
+      userHome: home,
+      home,
+      faux: fauxProvider(),
+    })
     prepared.registry.install(
       defineExtension({
         name: 'input-test',
@@ -99,7 +108,12 @@ it('places hook entries transactionally before initial and queued run inputs, no
 
 it('starts one run with every follow-up queued while busy, and steers join the current run', async () => {
   const home = await temp()
-  const prepared = await prepareHarness({ ultimateRoot: home, userHome: home, home, faux: true })
+  const prepared = await prepareHarness({
+    ultimateRoot: home,
+    userHome: home,
+    home,
+    faux: fauxProvider(),
+  })
   const gate = Promise.withResolvers<void>()
   let held = false
   prepared.faux!.setResponses([
@@ -146,7 +160,12 @@ it('starts one run with every follow-up queued while busy, and steers join the c
 
 it('records the thinking level each request asked for on its response', async () => {
   const home = await temp()
-  const prepared = await prepareHarness({ ultimateRoot: home, userHome: home, home, faux: true })
+  const prepared = await prepareHarness({
+    ultimateRoot: home,
+    userHome: home,
+    home,
+    faux: fauxProvider(),
+  })
   prepared.faux!.setResponses([fauxAssistantMessage('unset'), fauxAssistantMessage('high')])
   const f = await prepared.open()
   try {

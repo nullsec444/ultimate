@@ -243,12 +243,12 @@ it('renders <ConversationScope><Conversation/></ConversationScope> and sends, st
   const release = store.watchConversation(17)
   effects.push(release)
   await tick()
-  harness.sources[0].send('view', view(1, 'background'))
+  harness.sources[0].send('view', view(1, 'other transcript'))
   source(17).send('view', view(17, 'side transcript'))
   const render = () => renderToStaticMarkup(scoped(17, h(Conversation)))
   let html = render()
   expect(html).toContain('side transcript')
-  expect(html).not.toContain('background')
+  expect(html).not.toContain('other transcript')
   expect(html).toContain('composer-input-17')
   expect(html).toContain('queued 17')
   harness.cancel!()
@@ -279,10 +279,13 @@ it('renders <ConversationScope><Conversation/></ConversationScope> and sends, st
     preventDefault() {},
   })
   await tick()
+  // A steer behind the queued one withdraws it and sends both as one.
+  const calls = harness.fetch.mock.calls.map(([path]) => path)
+  expect(calls.at(-2)).toBe('/api/conversations/17/inbox/1700/cancel')
   expect(harness.fetch).toHaveBeenLastCalledWith(
     '/api/conversations/17/submit',
     expect.objectContaining({
-      body: JSON.stringify({ text: 'steer side', whenBusy: 'steer', images: [] }),
+      body: JSON.stringify({ text: 'queued 17\nsteer side', whenBusy: 'steer', images: [] }),
     }),
   )
   harness.change!({ target: { value: 'follow side' } })

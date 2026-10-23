@@ -29,6 +29,15 @@ import type { ExtensionHost } from '../../server/extensions.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { CancelAction, CancelledDoc, Committed } from './refs.ts'
 
+/** Pi's edit tool, with how to recover from its two common failures. */
+function editTool() {
+  const edit = createEditTool()
+  return {
+    ...edit,
+    description: `${edit.description} After "Could not find", read the region again before retrying; after "Found N occurrences", widen oldText with surrounding lines.`,
+  }
+}
+
 function defaultBashTimeout() {
   const seconds = Number(process.env.ULTIMATE_BASH_TIMEOUT ?? 600)
   if (!Number.isFinite(seconds) || seconds <= 0)
@@ -317,7 +326,7 @@ export default function codingTools(host: Pick<ExtensionHost, 'emit'>) {
   return defineExtension({
     name: 'coding-tools',
     // Each tool keeps its own parameters; the list is only read through the base registration.
-    tools: [createReadTool(), createWriteTool(), createEditTool(), bashTool] as ToolRegistration[],
+    tools: [createReadTool(), createWriteTool(), editTool(), bashTool] as ToolRegistration[],
     wraps: [
       wrapTool(createBashTool(), (bash) => ({
         ...bash,

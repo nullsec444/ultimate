@@ -1,3 +1,4 @@
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { apis, eventHost, temp, until } from './helpers.ts'
 import { afterEach, expect, it, vi } from 'vitest'
 import { awaitWithContext } from '@earendil-works/chord/context'
@@ -39,7 +40,12 @@ function gate() {
 }
 async function fixture() {
   const home = await temp('ultimate-messages-questions-')
-  const prepared = await prepareHarness({ home, ultimateRoot: home, userHome: home, faux: true })
+  const prepared = await prepareHarness({
+    home,
+    ultimateRoot: home,
+    userHome: home,
+    faux: fauxProvider(),
+  })
   let opened: OpenHost
   const services = new Map<string, unknown>()
   const openers: (() => Promise<void>)[] = []
@@ -51,7 +57,7 @@ async function fixture() {
   const host = {
     ...prepared,
     userHome: home,
-    projectSettings: async () => ({}),
+    projectSettings: async () => ({ summaryModel: 'faux/faux-1:off' }),
     harness: () => opened.harness,
     ...apis(services),
     doc: () => undefined,

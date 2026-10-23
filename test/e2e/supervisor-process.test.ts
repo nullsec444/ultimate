@@ -215,7 +215,6 @@ process.on('message',(message:{type:string})=>{ if(message.type==='go')process.s
         ULTIMATE_PROJECT: ultimateRoot,
         ULTIMATE_HOME: home,
         ULTIMATE_PORT: '0',
-        ULTIMATE_FAUX: '1',
       }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })

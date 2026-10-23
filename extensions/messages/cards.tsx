@@ -66,9 +66,16 @@ const Answers = ({ message }: { message: Message }) => (
   </Provided>
 )
 
+/** The accent of sender `id`: @ultimate's fixed one when the standing agents name it, else `accentOf`. */
+export function useAccentOf(id: number | 'user' | 'remote') {
+  const standing = useDocOf(1, StandingDoc)
+  return accentOf(standing?.ultimate === id ? 'ultimate' : id)
+}
+
 /**
  * Who `id` is: you, another project's Ultimate (`remote` names it), `@name` for a standing agent or the lander (with its
- * mark when `mark`), else a conversation link.
+ * mark when `mark`), else a conversation link. The ULTIMATE wordmark takes the colour of its surroundings: the accent
+ * of the bubble it heads.
  */
 export function Address({
   id,
@@ -97,9 +104,7 @@ export function Address({
     return (
       <span className="flex items-center gap-1.5" title="@ultimate">
         <AgentMark name={name} size="sm" />
-        <span className="font-sans text-[10.5px] font-semibold tracking-[0.28em] text-brand">
-          ULTIMATE
-        </span>
+        <span className="font-sans text-[10.5px] font-semibold tracking-[0.28em]">ULTIMATE</span>
       </span>
     )
   return (
@@ -169,7 +174,7 @@ export function Bubble({
 }) {
   const now = useNow(60000)
   const log = useDocOf(1, MessagesDoc)
-  const accent = accentOf(from)
+  const accent = useAccentOf(from)
   const status = sentStatus(message, running)
   const stored = entry?.model?.[0]
   const answer = message && log ? answerTo(log.messages, message) : undefined
@@ -262,11 +267,16 @@ function AttachedAnswer({ answer, question }: { answer: Message; question: Messa
   )
 }
 
+/** A catch-up on the tally and main, the note a conversation gets when it resumes after they moved. */
+const catchup = (entry: EntryRecord) =>
+  entry.kind === 'lineage.note' && (entry.data as { source?: unknown })?.source === 'main'
+
 /** What one background row is, in a few words that its counterpart follows. */
 function backgroundWord(
   { entry, calls }: CompactSummaryProps['rows'][number],
   failed: (call: string) => boolean,
 ) {
+  if (catchup(entry)) return 'Catch-up'
   const words: Record<string, string> = {
     'board.message': 'Message from',
     'board.reply': 'Reply from',
@@ -299,9 +309,10 @@ export function BackgroundSummary({ rows, steps, working }: CompactSummaryProps)
     count === 1
       ? backgroundWord(shown[0], (call) => callFailed(transcript, call))
       : `${count} updates ${who.length ? 'with' : 'between agents'}`
+  const Icon = count === 1 && catchup(shown[0].entry) ? GitBranchIcon : ArrowLeftRightIcon
   return (
     <span className="flex min-w-0 items-center gap-1.5" data-compact-background>
-      <ArrowLeftRightIcon className="size-3 shrink-0 text-brand/80" />
+      <Icon className="size-3 shrink-0 text-brand/80" />
       <span className="shrink-0">{what}</span>
       {who.slice(0, 2).map((id) => (
         <span className="flex min-w-0 text-foreground/80" key={id}>
@@ -577,7 +588,7 @@ export function MessageInput({ entry }: { entry: EntryRecord }) {
   const receiver = useConversation((conversation) => conversation.id)
   const { switchConversation } = useUltimate()
   const reply = entry.kind === 'board.reply'
-  const accent = accentOf(origin.from)
+  const accent = useAccentOf(origin.from)
   if (origin.from === 'user') return <UserTurn entry={entry} id={origin.id} text={origin.text} />
   return (
     <Fold

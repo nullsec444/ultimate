@@ -8,6 +8,8 @@ import type { Op } from '@earendil-works/chord/delta'
 import type { ConversationId, ConversationView, Harness } from '@earendil-works/pi-durable'
 import { afterAll, vi } from 'vitest'
 import { ProjectTrustStore } from '@earendil-works/pi-coding-agent'
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
+import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
 import { Tally } from '../extensions/lineage/server.ts'
 import { context } from '../server/harness.ts'
 import { createServer, prepareServer } from '../server/main.ts'
@@ -185,7 +187,7 @@ async function isolated(options: FixtureOptions) {
     projectRoot,
     userHome,
     home,
-    faux: true,
+    faux: options.faux ?? fauxProvider(),
     port: options.port ?? 0,
   }
 }
@@ -201,6 +203,11 @@ export async function fauxServer(options: FixtureOptions) {
 export async function prepareFauxServer(options: FixtureOptions) {
   return prepareServer(await isolated(options))
 }
+/** A scripted answer that never arrives: its run stays busy until it is aborted. */
+export const held: FauxResponseFactory = (_context, options) =>
+  new Promise((_answer, fail) =>
+    options?.signal?.addEventListener('abort', () => fail(new Error('aborted'))),
+  )
 /**
  * Make the empty root `id` (default the project's first conversation) a tally from an empty head, as if it had read
  * nothing yet, so tests can branch from it. Does nothing when it already has entries.

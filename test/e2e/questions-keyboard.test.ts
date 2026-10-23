@@ -1,6 +1,8 @@
 // Answers a three-question card in a real browser with only the keyboard: letter keys choose, ↑/↓ move between
 // questions, Enter sends; the reply reaches @ultimate in the message's own numbering.
 import { join, resolve } from 'node:path'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { chromium } from 'playwright-core'
@@ -8,6 +10,9 @@ import { afterEach, expect, it } from 'vitest'
 import { Messages } from '../../extensions/messages/api.ts'
 import { context } from '../../server/harness.ts'
 import { fauxServer, post, removeTemp, temp, until } from '../helpers.ts'
+
+const decisions =
+  "The preview is ready.\n\nDecisions:\n1. **Branch starts in the context:** (a) one-line intent plus breadcrumb; (b) drop them, rely on abstracts; (c) leave as is.\n2. **Boxer's copied `agents/ultimate.md`:** (a) assess a way to add tools without forking it; (b) leave it.\n3. **Land it:** (a) yes; (b) no, change something first.\n\nMy picks: 1a 2a 3a."
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -22,18 +27,26 @@ it('answers a decisions card with letters, arrows and Enter', async () => {
     projectRoot: resolve('.'),
     userHome: home,
     home: join(home, 'state'),
-    faux: true,
     port: 0,
   })
   cleanup.push(() => server.close())
+  // @ultimate asks the user the three decisions on each input, and acknowledges anything else.
+  const route: FauxResponseFactory = (transcript) => {
+    server.host.faux!.appendResponses([route])
+    const last = transcript.messages.at(-1)!
+    return last.role === 'user' && last.content === 'ask'
+      ? fauxAssistantMessage([fauxToolCall('message', { to: 'user', text: decisions })], {
+          stopReason: 'toolUse',
+        })
+      : fauxAssistantMessage('Noted.')
+  }
+  server.host.faux!.setResponses([route])
   const { data } = await post(server, '/api/extensions/subagents/actions/standing', {
     args: { name: 'ultimate' },
   })
   const ultimate = data.result as ConversationId
   const conversation = (await server.harness.conversation(ultimate, context))!
-  await (
-    await conversation.submit({ type: 'input', content: 'decisions demo' }, context)
-  ).wait(context)
+  await (await conversation.submit({ type: 'input', content: 'ask' }, context)).wait(context)
   const log = () => server.harness.snapshot(Messages, ROOT_CONVERSATION_ID, context)
   const ask = async () => (await log())?.messages.findLast((m) => m.to === 'user' && m.reply)
   await until(async () => !!(await ask()))
@@ -75,11 +88,12 @@ it('answers a decisions card with letters, arrows and Enter', async () => {
     "1c. Branch starts in the context: leave as is\n\n2a. Boxer's copied agents/ultimate.md: assess a way to add tools without forking it\n\n3b. Land it: no, change something first",
   )
   await card.waitFor({ state: 'detached' })
+  // @ultimate's turn on the answer must end first: an ask submitted while it runs steers into that turn, which
+  // then answers "Noted." instead of asking again.
+  await until(async () => (await answer())!.state === 'answered')
 
   // A fresh card: Accept picks, then a single Enter sends.
-  await (
-    await conversation.submit({ type: 'input', content: 'decisions demo' }, context)
-  ).wait(context)
+  await (await conversation.submit({ type: 'input', content: 'ask' }, context)).wait(context)
   await until(async () => (await ask())!.id !== asked.id)
   const second = (await ask())!
   const next = page.locator(`[data-questions-card="message:${second.id}"]`)

@@ -414,9 +414,9 @@ function delivery(host: ExtensionHost) {
             : declared(m.text)
         const triager = triaged && !sure ? await triageModel(host, runtime, ctx) : undefined
         const gated = triager !== undefined
-        const receipt =
+        const placing =
           task.input.note || gated
-            ? await recipient.submit(
+            ? recipient.submit(
                 {
                   type: 'write',
                   requestId,
@@ -424,7 +424,7 @@ function delivery(host: ExtensionHost) {
                 },
                 ctx,
               )
-            : await recipient.submit(
+            : recipient.submit(
                 {
                   type: 'input',
                   requestId,
@@ -434,6 +434,23 @@ function delivery(host: ExtensionHost) {
                 },
                 ctx,
               )
+        // A recipient's input hook can refuse the input; its placement rolled back, so the message failed, with why.
+        const receipt = await placing.catch(async (cause: unknown) => {
+          if (runtime.signal.aborted) throw cause
+          const error = `Not delivered to ${task.input.toLabel}: ${cause instanceof Error ? cause.message : String(cause)}`
+          await runtime.commit(async (tx) => {
+            const stored = (await tx.doc(Messages, ROOT_CONVERSATION_ID)).messages.find(
+              (item) => item.id === m.id,
+            )
+            if (stored) {
+              stored.state = 'failed'
+              stored.error = error
+            }
+            return terminal
+          }, ctx)
+          return undefined
+        })
+        if (!receipt) return
         {
           // Admission can precede placement while a recipient is busy. Watch its durable queue,
           // not a timer, so messages become delivered only after leaving the queue.
@@ -1309,9 +1326,11 @@ export default function messages(host: ExtensionHost) {
       defineTool({
         name: 'branch',
         deferred: true,
-        description: 'Start a lineage branch. Its answer returns to you as a reply.',
+        description:
+          "Start a lineage branch. Its answer returns to you as a reply. Give it a title: one short line naming the work (at most 60 characters), shown in the sidebar and the tally until its summary renames it; without one, the prompt's first 80 characters name it.",
         parameters: Type.Object({
           prompt: Type.String({ minLength: 1 }),
+          title: Type.Optional(Type.String({ minLength: 1, maxLength: 60 })),
           root: Type.Optional(Type.Number()),
           isolated: Type.Optional(Type.Boolean()),
           images: Type.Optional(imagesParameter),
@@ -1345,6 +1364,7 @@ export default function messages(host: ExtensionHost) {
               {
                 from: root,
                 prompt: input.prompt,
+                ...(input.title ? { title: input.title } : {}),
                 isolated: input.isolated ?? true,
                 deliver: false,
                 by: from,

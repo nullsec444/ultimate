@@ -106,8 +106,8 @@ the tools and the conversation work in your project.
 
 ## Building blocks
 
-Built-ins live in the clone's `extensions/`, and every one is on by default; `faux` stays inert outside demo mode,
-and `tailscale` exposes Ultimate only to your own Tailscale login. Each folder's README describes the building block.
+Built-ins live in the clone's `extensions/`, and every one is on by default; `tailscale` exposes Ultimate only to your
+own Tailscale login. Each folder's README describes the building block.
 
 Turn them off in `~/.ultimate/settings.json` for this machine or `<project>/.ultimate/settings.json` for this project:
 
@@ -153,9 +153,8 @@ conventions. Everything that is not core plumbing is an extension folder with a 
 
 ```bash
 pnpm dev                          # the server alone, without the supervisor
-ULTIMATE_FAUX=1 pnpm start        # a scripted demo model, no tokens
 pnpm check                        # format, lint, types
-pnpm test                         # fast in-process tests with the faux model
+pnpm test                         # fast in-process tests on scripted model responses
 pnpm test:e2e                     # tests that spawn real supervisors and instances
 ```
 

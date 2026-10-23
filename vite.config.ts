@@ -16,6 +16,8 @@ export default defineConfig({
       'promise/always-return': 'off',
       'typescript/no-floating-promises': ['error', { ignoreVoid: false }],
       'import/no-unassigned-import': ['error', { allow: ['**/*.css'] }],
+      // Stylistic: asks to hoist local helpers out of the test or closure they serve; we keep them next to their use.
+      'unicorn/consistent-function-scoping': 'off',
     },
     overrides: [
       {

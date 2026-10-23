@@ -67,7 +67,6 @@ it('starts two project supervisors concurrently on distinct free ports and stora
       ...cleanEnv(),
       HOME: userHome,
       ULTIMATE_HOME: home,
-      ULTIMATE_FAUX: '1',
     }
     delete env.ULTIMATE_PORT
     const child = spawn(

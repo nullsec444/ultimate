@@ -1,3 +1,4 @@
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { readFile } from 'node:fs/promises'
 import type { AssistantMessage } from '@earendil-works/pi-ai'
 import { afterEach, expect, it } from 'vitest'
@@ -194,7 +195,7 @@ it('reads only providers with a login here, so a removed login leaves no stale f
   const services = apis()
   healthExtension({
     ...services,
-    faux: true,
+    faux: fauxProvider(),
     userHome: home,
     modelRuntime: {
       getProviderAuthStatus: (provider: string) => ({ configured: provider === 'openai-codex' }),
@@ -209,14 +210,19 @@ it("Ultimate's logout resets the provider's health through models.login-changed"
   const home = await temp('ultimate-health-logout-')
   await record(home, 'anthropic', { lastFail: NOW, error: 'invalid_grant' })
   await record(home, 'openai-codex', { lastFail: NOW, error: 'invalid_grant' })
-  const prepared = await prepareHarness({ home, ultimateRoot: home, userHome: home, faux: true })
+  const prepared = await prepareHarness({
+    home,
+    ultimateRoot: home,
+    userHome: home,
+    faux: fauxProvider(),
+  })
   const opened = await prepared.open()
   try {
     const events = eventHost(() => opened.harness, 'health')
     const logouts: string[] = []
     const host = {
       userHome: home,
-      faux: true,
+      faux: fauxProvider(),
       ...apis(),
       harness: () => opened.harness,
       emit: events.emit,

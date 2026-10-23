@@ -1,9 +1,11 @@
 import { resolve } from 'node:path'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
 import { context } from '../server/harness.ts'
 import { UiState } from '../server/ui-state.ts'
-import { fauxServer, post, temp, until } from './helpers.ts'
+import { fauxServer, temp, until } from './helpers.ts'
 
 async function fixture() {
   const home = await temp('ultimate-reopen-')
@@ -81,28 +83,26 @@ it('resumes ancestors in the commit that places any input, typed or extension', 
   }
 })
 
-it('a message, and one sent by an automation run, resume a concluded recipient', async () => {
+it('a message resumes a concluded recipient', async () => {
   const f = await fixture()
   try {
     const target = f.unrelated.id
     await f.conclude([target])
-    // The faux model sends `message #<id> one-way` as a message tool call.
+    // Send a one-way message, then answer.
+    const route: FauxResponseFactory = (transcript) => {
+      f.server.host.faux!.appendResponses([route])
+      return transcript.messages.at(-1)?.role === 'toolResult'
+        ? fauxAssistantMessage('Sent.')
+        : fauxAssistantMessage(
+            [fauxToolCall('message', { to: `#${target}`, text: 'Check this.', reply: false })],
+            { stopReason: 'toolUse' },
+          )
+    }
+    f.server.host.faux!.setResponses([route])
     await f.server.root.submit({ type: 'input', content: `message #${target} one-way` }, context)
     await until(async () => !(await f.concluded()).includes(target))
     await f.server.harness.waitForIdle(context)
-
-    await f.conclude([target])
-    const action = (name: string, args: object) =>
-      post(f.server, `/api/extensions/automations/actions/${name}`, { args })
-    const created = await action('create', {
-      name: 'relay',
-      prompt: `message #${target} one-way`,
-      schedule: 'in 1h',
-    })
-    expect(created).toMatchObject({ status: 200, data: { result: { id: 'A1' } } })
-    expect((await action('run', { id: 'A1' })).status).toBe(200)
-    await until(async () => !(await f.concluded()).includes(target))
-    await f.server.harness.waitForIdle(context)
+    expect(await f.concluded()).not.toContain(target)
   } finally {
     await f.server.close()
   }

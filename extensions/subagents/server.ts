@@ -428,7 +428,8 @@ export const actions = {
     if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter))
       throw new Error('frontmatter must be an object')
     if (typeof instructions !== 'string') throw new Error('instructions must be a string')
-    const { description, model, thinking, tools, isolate, resident, onFailure, fast } = frontmatter
+    const { description, model, thinking, tools, denyTools, isolate, resident, onFailure, fast } =
+      frontmatter
     if (typeof description !== 'string') throw new Error('description is required')
     if (model !== undefined && typeof model !== 'string') throw new Error('model must be a string')
     if (thinking !== undefined && typeof thinking !== 'string')
@@ -438,6 +439,11 @@ export const actions = {
       (!Array.isArray(tools) || !tools.every((tool) => typeof tool === 'string'))
     )
       throw new Error('tools must be a list of tool names')
+    if (
+      denyTools !== undefined &&
+      (!Array.isArray(denyTools) || !denyTools.every((tool) => typeof tool === 'string'))
+    )
+      throw new Error('denyTools must be a list of tool names')
     if (isolate !== undefined && isolate !== 'none' && isolate !== 'worktree')
       throw new Error('isolate must be none or worktree')
     if (onFailure !== undefined && onFailure !== 'diagnose' && onFailure !== 'fix')
@@ -468,6 +474,7 @@ export const actions = {
         ...(model ? { model } : {}),
         ...(thinking ? { thinking } : {}),
         ...(tools ? { tools } : {}),
+        ...(denyTools?.length ? { denyTools } : {}),
         ...(isolate ? { isolate } : {}),
         ...(resident !== undefined ? { resident } : {}),
         ...(onFailure ? { onFailure } : {}),
@@ -802,7 +809,9 @@ export default function subagents(
             Type.Literal('land'),
             Type.Literal('discard'),
           ]),
-          agent: Type.Optional(Type.String()),
+          agent: Type.Optional(
+            Type.String({ description: 'Required for start: an Available definitions name.' }),
+          ),
           task: Type.Optional(Type.String()),
           background: Type.Optional(Type.Boolean()),
           fork: Type.Optional(Type.Boolean()),
@@ -853,7 +862,7 @@ export default function subagents(
               )
             const parent = await api.agent(context)
             const existingAction = index.actions[api.callId]
-            const definition =
+            const definitions =
               args.action === 'start' && !existingAction
                 ? (
                     await discoverAgents(
@@ -862,10 +871,13 @@ export default function subagents(
                       host.userHome,
                       host.modelRuntime,
                     )
-                  ).definitions.find((agent) => agent.name === args.agent)
+                  ).definitions
                 : undefined
-            if (args.action === 'start' && !existingAction && !definition)
-              throw new Error(`Unknown agent: ${args.agent}`)
+            const definition = definitions?.find((agent) => agent.name === args.agent)
+            if (definitions && !definition)
+              throw new Error(
+                `Unknown agent: ${args.agent}. Pass agent: one of ${definitions.map((agent) => agent.name).join(', ')}`,
+              )
             if (definition?.tools?.some((name) => !parent.tools.some((tool) => tool.name === name)))
               throw new Error('Definition tools must be a subset of parent tools')
             const isolated =

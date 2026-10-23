@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fauxAssistantMessage } from '@earendil-works/pi-ai/providers/faux'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import type { Conversation, ConversationId } from '@earendil-works/pi-durable'
 import { afterAll, expect, it } from 'vitest'
@@ -47,6 +47,26 @@ async function launch() {
     server,
     home,
     summary,
+    /** The root starts a worker that answers DONE; resolves once everything is idle. */
+    delegate: async () => {
+      server.host.faux!.setResponses([
+        fauxAssistantMessage(
+          [
+            fauxToolCall('subagent', {
+              action: 'start',
+              agent: 'worker',
+              isolate: 'none',
+              task: 'Return the word DONE.',
+            }),
+          ],
+          { stopReason: 'toolUse' },
+        ),
+        fauxAssistantMessage('DONE'),
+        fauxAssistantMessage('Delegated.'),
+      ])
+      await post(server, '/api/conversations/1/submit', { text: 'delegate to worker' })
+      await server.harness.waitForIdle(context)
+    },
     /** A new top-level conversation, as the sidebar creates one. */
     create: async (data: { cwd?: string; title?: string } = {}) =>
       (await post(server, '/api/conversations', data)).data.id as ConversationId,
@@ -93,15 +113,14 @@ it.concurrent('reads concluded IDs from the current transaction without exposing
 })
 
 it.concurrent('tells each top-level conversation about the others in a fixed text', async () => {
-  const { server, home, summary, create, message, render } = await launch()
+  const { server, home, summary, create, message, render, delegate } = await launch()
   const root = ROOT_CONVERSATION_ID
   const fixed = await render('conversations', root)
   expect(fixed).toMatch(/^Other conversations in this project/)
   expect(fixed).toContain('`ultimate.conversations()`')
 
   // An owned child (a subagent) gets no section.
-  await post(server, '/api/conversations/1/submit', { text: 'delegate to worker' })
-  await server.harness.waitForIdle(context)
+  await delegate()
   const child = server.api.conversations().find((item) => item.label === 'worker')!
   expect(child.inputAt).toEqual(expect.any(Number))
   expect(child.parentConversationId).toBe(root)
@@ -386,7 +405,7 @@ it.concurrent('identifies the next model request after automatic overflow compac
 })
 
 it.concurrent('renames top-level conversations', async () => {
-  const { server, summary, create, message, action } = await launch()
+  const { server, summary, create, message, action, delegate } = await launch()
   const id = await create()
   await message(id, 'Fix the parser', 2000)
   const title = async () => (await server.harness.snapshot(Metadata, id, context))?.title
@@ -413,8 +432,7 @@ it.concurrent('renames top-level conversations', async () => {
     status: 200,
     data: { result: { ok: true } },
   })
-  await post(server, '/api/conversations/1/submit', { text: 'delegate to worker' })
-  await server.harness.waitForIdle(context)
+  await delegate()
   const child = server.api.conversations().find((item) => item.label === 'worker')!
   const owned = `Conversation ${child.id} is owned, not a top-level conversation`
   for (const [name, args, error] of [

@@ -31,8 +31,13 @@ export const store = createStore({
 })
 /** Server commands; conversation commands default to the shown conversation. */
 export const api = createApi(store)
+/**
+ * A page an agent drives (the `screenshot` and `browser` tools mark it) looks at the UI without steering the user's
+ * tabs: it reads the shared state once, then its selection and panels are its own, never written or followed.
+ */
+const detached = sessionStorage.getItem('ultimate.detached') === '1'
 /** Durable UI state shared by every tab, fed by the stream (see ui-state.ts). */
-export const uiState = createUiState(api.updateUi, {
+export const uiState = createUiState(detached ? undefined : api.updateUi, {
   onError: (error) =>
     store.notify({ level: 'error', message: `UI state not saved: ${String(error)}` }),
 })
@@ -66,7 +71,7 @@ store.subscribe(() => {
       }
       initialized = true
       followSelection()
-    } else uiState.receive(shared)
+    } else if (!detached) uiState.receive(shared)
   }
   const { view, requested } = store.getState()
   if (initialized && view && (requested === undefined || requested === view.conversation.id)) {

@@ -1,6 +1,6 @@
 /**
  * Codemode on the server: the document that keeps a one-line summary of each codemode call, for extensions that write
- * or read it (faux previews seed it).
+ * or read it.
  */
 import { defineDoc } from '@earendil-works/pi-durable'
 import { SummariesDoc } from './refs.ts'

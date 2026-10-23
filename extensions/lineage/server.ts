@@ -760,6 +760,8 @@ const finishedText = (id: number, title: string | undefined, text: string) =>
 
 type PromptInput = {
   prompt: string
+  /** One short line naming the branch until its summary renames it; without it, the prompt's first 80 characters. */
+  title?: string
   images?: BranchImage[]
   isolated?: boolean
   model?: ModelRef
@@ -804,10 +806,19 @@ function head(host: ExtensionHost) {
     )
 }
 
-/** A branch's intent in one line: its title until its summary names it, and what its tree's tally reads. */
-function intentLine(prompt: string) {
-  const text = prompt.replace(/\s+/g, ' ').trim()
-  return text.length > 80 ? `${text.slice(0, 79)}…` : text
+/** `text` on one line of at most `max` characters, whitespace collapsed. */
+function oneLine(text: string, max: number) {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+/**
+ * A branch's intent in one line: its title until its summary names it, and what its tree's tally reads. The title its
+ * starter gave (at most 60 characters), else the prompt's first 80.
+ */
+function intentLine(prompt: string, title?: string) {
+  const given = title === undefined ? '' : oneLine(title, 60)
+  return given || oneLine(prompt, 80)
 }
 
 /**
@@ -913,13 +924,20 @@ async function forkBranch(
       data: { lineage: { brief: { tally: brief.tip ?? null } } },
       model: [{ role: 'user', content: brief.text, timestamp: Date.now() }],
     })
-  // Until the summary names it, a branch is called by its intent, not by the first message it inherited.
-  const intent = intentLine(prompt)
+  // Until the summary names it, a branch is called by the title its starter gave, else its intent, not by the first
+  // message it inherited.
+  const intent = intentLine(prompt, input.title)
   const metadata = await tx.doc(host.metadata, fork.id)
   metadata.title = intent
   // The prompt is its first input, placed right after this commit: it sorts as asked for now.
   metadata.inputAt = Date.now()
-  await host.emit(tx, Branched, { id: fork.id, from, at, intent: prompt })
+  await host.emit(tx, Branched, {
+    id: fork.id,
+    from,
+    at,
+    intent: prompt,
+    ...(input.title ? { title: input.title } : {}),
+  })
   await host.emit(tx, Started, {
     id: fork.id,
     agent: 'branch',
@@ -1222,6 +1240,8 @@ export function compareLinks(
 function rootInput(args: JsonValue) {
   const input = (args ?? {}) as Partial<BranchInput>
   if (typeof input.prompt !== 'string') throw new Error('prompt must be a string')
+  if (input.title !== undefined && typeof input.title !== 'string')
+    throw new Error('title must be a string')
   if (
     input.model !== undefined &&
     (typeof input.model?.provider !== 'string' || typeof input.model.modelId !== 'string')
@@ -1404,12 +1424,14 @@ export default function lineageExtension(host: ExtensionHost) {
     abstract,
   })
   const conversations = host.need(ConversationsApi)
-  // A new branch or root is called by its intent until its summary names it: lineage titled it so, and marking that
-  // title generated lets the summary replace it.
+  // A new branch or root is called by its given title or its intent until its summary names it: lineage titled it so,
+  // and marking that title generated lets the summary replace it.
   host.react('named', [Branched, Rooted], async (tx, { data }) => {
     const id = data.id as ConversationId
     if (!(await tx.conversation(id))) return
-    await conversations.generatedTitle(tx, id, intentLine(data.intent))
+    // Only a branch carries a given title; a root is named by its intent.
+    const { title } = data as { title?: string }
+    await conversations.generatedTitle(tx, id, intentLine(data.intent, title))
   })
   const { Notify, Prompt, LandingNote, ConcludeLanded, Woken } = lineage(host)
   // A landed branch is done: conclude it once its report run ends. Background, in the submitter's conversation.

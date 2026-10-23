@@ -54,6 +54,21 @@ export const actionRef = <Args, Result>(
  */
 export const coreTier = /^export const tier = 'core'$/m
 
+/**
+ * Built-ins that ship installed but off: each needs something of its own (a key, a service, a Worker) or changes how
+ * the machine behaves. `extensions.enable` in user or project settings turns one on.
+ */
+export const defaultOff: readonly string[] = [
+  'cloud',
+  'parallel',
+  'tailscale',
+  'update',
+  'health',
+  'classify',
+  'phase',
+  'sounds',
+]
+
 /** Who provides and who consumes each API, as `host.catalogue()` reports it. */
 export type Catalogue = {
   /** `owner` is set on an extension point `<owner>.<point>`: the extension that declares it in its api.ts. */

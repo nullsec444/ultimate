@@ -18,7 +18,6 @@ import { context } from '../server/harness.ts'
 import { Metadata } from '../server/metadata.ts'
 import { actions } from '../extensions/conversations/server.ts'
 import { parseSummaryModel } from '../extensions/conversations/summary-model-ref.ts'
-import { summaryModel as resolveSummaryModel } from '../extensions/conversations/summary-model.ts'
 import {
   IntentSummarized,
   ReplySummarized,
@@ -31,24 +30,6 @@ import {
 } from '../extensions/conversations/summary.ts'
 import type { SummaryHost } from '../extensions/conversations/summary.ts'
 import { temp, until } from './helpers.ts'
-
-it('defaults summary calls to faux without overriding explicit settings', async () => {
-  let project: JsonObject = {}
-  const host = {
-    userHome: await temp('ultimate-faux-summary-'),
-    faux: fauxProvider(),
-    projectSettings: async () => project,
-    notice: () => {},
-    modelRuntime: { getAvailableSnapshot: () => [] },
-  }
-  expect(await resolveSummaryModel(host)).toEqual({
-    provider: 'faux',
-    id: 'faux-1',
-    thinking: 'off',
-  })
-  project = { summaryModel: 'unavailable/test' }
-  expect(await resolveSummaryModel(host)).toBeUndefined()
-})
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {

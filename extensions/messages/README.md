@@ -94,6 +94,9 @@ advancing the task checkpoint happen in one transaction. A reopened task resumes
 placed input awaiting an answer and a recorded answer awaiting delivery survive without duplicate replies.
 One-way input deliveries also wait for the answer; recording it and completing the task commit together.
 Note deliveries complete after placement, without waiting for an answer.
+When the recipient's input hooks refuse placement, the message becomes `failed` with `error` naming the cause, and
+the task completes instead of faulting with the message stuck in `sent`. A message to a concluded conversation is
+delivered like any other: its input resumes it, and its next request recreates a released checkout.
 
 ## Ultimate and branches
 
@@ -102,7 +105,8 @@ Model-facing messages identify standing senders as `#12 (@ultimate)` and the lan
 conversations stay `#id`, and user replies say `user`. Before delivery, standing recipients are refreshed from their
 current definitions, including numeric-address messages and automatic replies.
 
-The deferred `branch { prompt, root?, isolated?: true }` tool is offered only to definitions that name it.
+The deferred `branch { prompt, title?, root?, isolated?: true }` tool is offered only to definitions that name it.
+`title` (one line, at most 60 characters) names the branch in the sidebar and the tally until its summary renames it.
 It chooses the explicit root, otherwise the caller's tree root, otherwise the only root. Ambiguous or missing roots
 produce an error listing the available ids. It forks the root's tally tip through lineage, attributes the tally's branch
 line to the caller, and sends the first input as a message with replies enabled. It returns the branch id and message id.
@@ -144,10 +148,10 @@ never the user's.
 - **Target:** `messages.remote { key, text, reply, from: { project, machine } }` logs a message `from: 'remote'` to its
   own primary agent, the only recipient it can reach, and delivers it like any other: as a steer, triaged, with
   receipts. The model reads `Message from @ultimate@<project> on <machine> (another project's Ultimate, not the
-user)`. The `board.remote` document maps each key to its message in the same commit, so a repeated post (a retry,
+  user)`. The `board.remote` document maps each key to its message in the same commit, so a repeated post (a retry,
   a replay) returns the first id and delivers nothing new.
 - **One hop back:** with `reply`, the delivery's answer phase posts it to the sender's `messages.remoteReply { key, text,
-failed }` instead of a local conversation. The sender records it as a reply `from: 'remote'` with `re` and
+  failed }` instead of a local conversation. The sender records it as a reply `from: 'remote'` with `re` and
   `reply: false`, delivered by the usual reply phase, so its answer goes nowhere. The sender keeps each reply-enabled
   tell in `board.remote` until its answer arrives (the log drops old messages), so a late answer still lands;
   `remoteReply` refuses any other key, including a one-way tell's, and a second answer returns the first one's id.

@@ -37,8 +37,8 @@ A project is a forest of conversation trees, like commit histories.
 - **Conclude** a conversation when its work is done; it stays readable and can be resumed. A branch whose submission
   lands is concluded for you once its report run is idle, unless it still waits on a reply or a subagent runs.
 - **UI polish lands when the user says so.** For small look-and-feel work (an animation, a loading state, spacing,
-  a card), keep a faux preview of the branch's checkout running (`instance start` with `faux: true`), give the user
-  its URL, and iterate there: commit each round in the branch, but do not `workspace submit` until the user has
+  a card), keep a preview of the branch's checkout running (`instance start`: a clean instance on the configured
+  models, which you seed by prompting it like a user), give the user its URL, and iterate there: commit each round in the branch, but do not `workspace submit` until the user has
   clicked around and approved it. Larger UI features and anything with behaviour behind it land as usual.
 
 `extensions/lineage/README.md` has the mechanics.
@@ -70,7 +70,7 @@ guide to writing extensions, and copy the closest existing one (`status-line`, `
 
 - [Running the server](docs/running.md): before starting, debugging or testing a server or core swap.
 - [Worktrees and integration](docs/worktrees.md): before previewing an isolate, landing or recovering a rejected push.
-- [Discovery and settings](docs/settings.md): before changing configuration, trust, resources or `summaryModel` (titles, summaries, reply summaries, question extraction and tree abstracts; faux uses `faux/faux-1:off` by default).
+- [Discovery and settings](docs/settings.md): before changing configuration, trust, resources or `summaryModel` (titles, summaries, reply summaries, question extraction and tree abstracts).
 - [Durability](docs/durability.md): before changing persistence, replay or durable UI state.
 - [Extension mechanics and introspection](docs/extensions.md): before wiring facets, documents, events or runtime inspection.
 - [Subagents](docs/subagents.md): before delegating, changing definitions or configuring the review team.
@@ -105,6 +105,9 @@ See [integration details](docs/worktrees.md#standing-permission-to-push-this-rep
   task descriptions, and check a worker's screenshots against it before accepting.
 
 ## Review quality
+
+Rules about how agents behave live in prompts and agent definitions, not in code. Code checks protect only safety and
+invalid states: data loss, security, impossible states. Lint enforces only what the user explicitly asked for.
 
 A swallowed error needs a reason comment explaining why ignoring it is correct; `ultimate/no-silent-catch` enforces this for empty catch blocks and empty or `undefined`-returning `.catch` handlers.
 

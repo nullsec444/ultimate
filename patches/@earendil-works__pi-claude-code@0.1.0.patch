@@ -105,3 +105,49 @@ index 08ec86e5df1baac866a1cd97cea4dc94a523fbd7..b3aa4007e5154b2d9cd21e8d2ad8fbc6
        if (!response.headersSent) response.writeHead(this.cancelled ? 499 : 502).end();
        else response.destroy();
      } finally {
+diff --git a/src/stream.ts b/src/stream.ts
+index b516241c794b5dd7054822921d445a2169c6b70e..ba5330c54b36584a6f7b35a53afee4c411770e07 100644
+--- a/src/stream.ts
++++ b/src/stream.ts
+@@ -122,6 +122,19 @@ function comparableContent(content: AssistantMessage["content"]): unknown[] {
+   });
+ }
+ 
++/**
++ * Resolve a native tool name to Pi's. Claude Code runs without built-in tools, so a name outside the request
++ * is the model naming a tool it was not offered, e.g. bare `bash` for `mcp__pi__bash`. That is a sampling slip,
++ * not a fault in the request: the error says the stream "ended without" a response so pi-ai retries it.
++ */
++export function piToolName(nativeName: string, toolNames: Set<string>): string {
++  const name = nativeName.startsWith(TOOL_PREFIX) ? nativeName.slice(TOOL_PREFIX.length) : undefined;
++  if (name !== undefined && toolNames.has(name)) return name;
++  throw new Error(
++    `Claude Code returned ${name === undefined ? "unexpected" : "unavailable"} tool ${name ?? nativeName}: the model named a tool the request did not offer, so the stream ended without a usable response`,
++  );
++}
++
+ function nativeContent(content: NativeContentBlock[], toolNames: Set<string>): AssistantMessage["content"] {
+   const converted: AssistantMessage["content"] = [];
+   for (const block of content) {
+@@ -141,9 +154,7 @@ function nativeContent(content: NativeContentBlock[], toolNames: Set<string>): A
+         redacted: true,
+       });
+     } else if (block.type === "tool_use") {
+-      if (!block.name.startsWith(TOOL_PREFIX)) throw new Error(`Claude Code returned unexpected tool ${block.name}`);
+-      const name = block.name.slice(TOOL_PREFIX.length);
+-      if (!toolNames.has(name)) throw new Error(`Claude Code returned unavailable tool ${name}`);
++      const name = piToolName(block.name, toolNames);
+       converted.push({ type: "toolCall", id: block.id, name, arguments: block.input as never });
+     }
+   }
+@@ -239,9 +250,7 @@ class EventTranslator {
+       } as IndexedThinking);
+       this.stream.push({ type: "thinking_start", contentIndex, partial: this.output });
+     } else if (native.type === "tool_use") {
+-      if (!native.name.startsWith(TOOL_PREFIX)) throw new Error(`Claude Code returned unexpected tool ${native.name}`);
+-      const name = native.name.slice(TOOL_PREFIX.length);
+-      if (!this.toolNames.has(name)) throw new Error(`Claude Code returned unavailable tool ${name}`);
++      const name = piToolName(native.name, this.toolNames);
+       this.output.content.push({
+         type: "toolCall",
+         id: native.id,

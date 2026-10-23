@@ -130,7 +130,6 @@ it('reads a project on another machine through the register, with the cloud toke
   try {
     const host = {
       userHome: '/nonexistent',
-      faux: false,
       notice: () => {},
       projects: async () => [{ name: 'ultimate', current: true }],
     } as unknown as ExtensionHost

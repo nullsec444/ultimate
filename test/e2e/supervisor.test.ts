@@ -108,7 +108,6 @@ describe('supervisor restart', () => {
         ULTIMATE_PROJECT: running.ultimateRoot,
         ULTIMATE_HOME: running.home,
         ULTIMATE_PORT: '0',
-        ULTIMATE_FAUX: '1',
       }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -125,7 +124,7 @@ describe('supervisor restart', () => {
     const running = await fixture()
     const stream = await attach(running.url)
     await post(running.url, '/api/conversations/1/submit', { text: 'demo' })
-    await until(() => transcript(stream.view()).includes('I will demonstrate'))
+    await until(() => transcript(stream.view()).includes('starting'))
     expect(transcript(stream.view())).not.toContain('## Complete')
     process.kill(stream.system().process.pid, 'SIGKILL')
     await until(
@@ -134,7 +133,7 @@ describe('supervisor restart', () => {
         transcript(stream.view()).includes('## Complete'),
     )
     expect(stream.connections()).toBeGreaterThan(1)
-    expect(await readFile(join(running.home, 'demo.txt'), 'utf8')).toBe('after\n')
+    expect(await readFile(join(running.ultimateRoot, 'scratch.txt'), 'utf8')).toBe('after\n')
   }, 60000)
   it('accepts an API swap and rejects a type error without releasing the active owner', async () => {
     const running = await fixture()

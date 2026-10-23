@@ -4,6 +4,7 @@ dist/
 *.sqlite-*
 .DS_Store
 *.tsbuildinfo
+.vitest/
 .dev.vars
 .wrangler/
 cloud/wrangler.deploy.json

@@ -222,6 +222,8 @@ interface Draft {
   model: ModelRef | null
   thinking: string | null
   tools: string[] | null
+  /** Kept as read: the form has no control for it, and a save must not drop it. */
+  denyTools: string[]
   resident: boolean
   isolate: 'none' | 'worktree'
   onFailure: 'diagnose' | 'fix' | null
@@ -234,6 +236,7 @@ const draftOf = (definition?: Shown['definition'], name = ''): Draft => ({
   model: definition?.model ?? null,
   thinking: definition?.thinking ?? null,
   tools: definition?.tools ?? null,
+  denyTools: definition?.denyTools ?? [],
   resident: definition?.resident ?? false,
   isolate: definition?.isolate ?? 'none',
   onFailure: definition?.onFailure ?? null,
@@ -316,6 +319,7 @@ function Form({
           ...(draft.model ? { model: `${draft.model.provider}/${draft.model.modelId}` } : {}),
           ...(draft.thinking ? { thinking: draft.thinking } : {}),
           ...(draft.tools ? { tools: draft.tools } : {}),
+          ...(draft.denyTools.length ? { denyTools: draft.denyTools } : {}),
           resident: draft.resident,
           ...(draft.isolate === 'worktree' ? { isolate: 'worktree' } : {}),
           ...(draft.onFailure ? { onFailure: draft.onFailure } : {}),

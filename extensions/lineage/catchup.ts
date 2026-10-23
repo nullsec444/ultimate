@@ -51,7 +51,10 @@ async function mainOf(
     // An unborn target branch has no commits to catch up on.
     () => undefined,
   )
-  return sha ? { cwd, target, sha, ...(workspace ? { workspace: workspace.path } : {}) } : undefined
+  // Only a ready checkout exists on disk: a concluded conversation's is released, and its next request recreates it.
+  return sha
+    ? { cwd, target, sha, ...(workspace?.state === 'ready' ? { workspace: workspace.path } : {}) }
+    : undefined
 }
 
 export async function seedSeen(tx: Tx, id: ConversationId, main: string, at: number) {

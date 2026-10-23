@@ -18,10 +18,10 @@ it('terminates an isolated instance after its owner is SIGKILLed', async () => {
   const code = `
     import {createServer} from './server/main.ts';
     import {context} from './server/harness.ts';
-    import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai/providers/faux';
+    import {fauxAssistantMessage,fauxProvider,fauxToolCall} from '@earendil-works/pi-ai/providers/faux';
     import {writeFile} from 'node:fs/promises';
-    const server = await createServer({ultimateRoot:process.cwd(),projectRoot:process.cwd(),userHome:${JSON.stringify(home)},home:${JSON.stringify(home)},faux:true,port:0});
-    server.host.faux.setResponses([fauxAssistantMessage([fauxToolCall('instance',{action:'start',faux:true})],{stopReason:'toolUse'}),fauxAssistantMessage('Complete')]);
+    const server = await createServer({ultimateRoot:process.cwd(),projectRoot:process.cwd(),userHome:${JSON.stringify(home)},home:${JSON.stringify(home)},faux:fauxProvider(),port:0});
+    server.host.faux.setResponses([fauxAssistantMessage([fauxToolCall('instance',{action:'start'})],{stopReason:'toolUse'}),fauxAssistantMessage('Complete')]);
     await (await server.root.submit({type:'input',content:'start'},context)).wait(context);
     const view = await server.root.viewState(context);
     const result = view.value.entries.findLast(e => e.kind === 'pi.tool-result').model[0];
@@ -81,7 +81,6 @@ it('terminates an isolated instance after its owner is SIGKILLed', async () => {
       ULTIMATE_HOME: instance!.home,
       ULTIMATE_PORT: '0',
       ULTIMATE_NO_OPEN: '1',
-      ULTIMATE_FAUX: '1',
       ULTIMATE_INSTANCE_OWNER: String(owner.pid),
       ANTHROPIC_API_KEY: 'instance-test-key',
       HTTPS_PROXY: 'http://proxy.invalid:8080',

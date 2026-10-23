@@ -33,11 +33,14 @@ import type {
 } from '@earendil-works/pi-durable'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { discoverAgents } from '../../lib/agents.ts'
+import { shortTitle } from '../../lib/title.ts'
 import { apiSource, apiSummaries } from '../../lib/api-files.ts'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import type { ActionContext } from '../../server/actions.ts'
 import { READ_BYTES, READS, readProject } from './projects.ts'
 import type { Read } from './projects.ts'
+import { closedChapter, id, limit, readChapter } from './chapters.ts'
+import type { HistoryRead } from './chapters.ts'
 import { ConversationsApi } from '../conversations/api.ts'
 import { MessagesApi } from '../messages/api.ts'
 import type { ResponseReceipt } from '../conversations/summary.ts'
@@ -80,17 +83,6 @@ function declarations(tools: readonly ToolRegistration[]): CodemodeTool[] {
     }))
 }
 
-const limit = (value: unknown, fallback = 100) => {
-  const n = value ?? fallback
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 1000)
-    throw new Error('limit must be an integer between 1 and 1000')
-  return n
-}
-const id = (value: unknown): ConversationId => {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1)
-    throw new Error('conversationId must be a positive integer')
-  return value as ConversationId
-}
 /** The history reads codemode offers, on this project's storage; `codemode.read` serves them to other projects. */
 function localReads(host: ExtensionHost, context: Context) {
   const conversations = () =>
@@ -158,7 +150,10 @@ function localReads(host: ExtensionHost, context: Context) {
     }
     return matches
   }
-  /** Every conversation with its summary (title, label, cwd, busy, latest input) and whether it is concluded. */
+  /**
+   * Every conversation with its summary (title, label, cwd, busy, latest input) and whether it is concluded.
+   * Titles are shortened: old subagent titles hold whole prompts and would push the listing past the read limit.
+   */
   const listed = async () => {
     const summaries = new Map(host.conversations().map((summary) => [summary.id, summary]))
     const concluded = (await host.uiState(context))['ext.conversations.concluded']
@@ -168,7 +163,7 @@ function localReads(host: ExtensionHost, context: Context) {
       return {
         ...record,
         ...(summary && {
-          title: summary.title,
+          title: summary.title === undefined ? undefined : shortTitle(summary.title),
           label: summary.label,
           cwd: summary.cwd,
           busy: summary.busy,
@@ -178,12 +173,20 @@ function localReads(host: ExtensionHost, context: Context) {
       }
     })
   }
+  const history =
+    (op: HistoryRead, at: number, live: (args: unknown[]) => unknown) =>
+    async (args: unknown[]) => {
+      const database = await closedChapter(host.home, host.chapter.name, args[at])
+      return database ? readChapter(database, op, args) : live(args)
+    }
   return {
-    conversations: () => listed(),
-    entries: ([conversation, options]) =>
+    conversations: history('conversations', 0, () => listed()),
+    entries: history('entries', 1, ([conversation, options]) =>
       entries(conversation, options as Parameters<typeof entries>[1]),
-    search: ([text, options]) =>
+    ),
+    search: history('search', 1, ([text, options]) =>
       search(text, options as { conversationId?: number; limit?: number }),
+    ),
     trace: ([query]) => host.trace.query(query ?? {}),
     traceTree: ([traceId]) => {
       if (typeof traceId !== 'string' || !traceId) throw new Error('traceId must be nonempty')
@@ -219,6 +222,13 @@ function globals(
       const project =
         options && typeof options === 'object' && 'project' in options ? options.project : undefined
       if (project !== undefined) {
+        if (
+          options &&
+          typeof options === 'object' &&
+          'chapter' in options &&
+          options.chapter !== undefined
+        )
+          throw new Error('chapter and project cannot be used together')
         if (typeof project !== 'string' || !project) throw new Error('project must be nonempty')
         const { project: _project, ...rest } = options as Record<string, unknown>
         args[at] = rest
@@ -344,8 +354,8 @@ function globals(
     {
       name: 'conversations',
       description:
-        'All stored conversations: id, owner, and for listed ones title, label, cwd, busy, inputAt and concluded.',
-      signature: '(options?: { project?: string }): Promise<unknown[]>',
+        'All stored conversations: id, owner, and for listed ones title, label, cwd, busy, inputAt and concluded. chapter reads another chapter read-only (not with project); cross-chapter links are written <chapter>#123.',
+      signature: '(options?: { project?: string; chapter?: string }): Promise<unknown[]>',
       execute: read('conversations', 0),
     },
     {
@@ -353,7 +363,7 @@ function globals(
       description:
         'Newest-first fork-aware stored history, including before resets and compactions. before is an exclusive entry ID.',
       signature:
-        '(conversationId: number, options?: { kinds?: string[]; limit?: number; before?: number; project?: string }): Promise<unknown[]>',
+        '(conversationId: number, options?: { kinds?: string[]; limit?: number; before?: number; project?: string; chapter?: string }): Promise<unknown[]>',
       execute: read('entries', 1),
     },
     {
@@ -361,7 +371,7 @@ function globals(
       description:
         'Case-sensitive substring search over all stored entry JSON, including history before resets and compactions.',
       signature:
-        '(text: string, options?: { conversationId?: number; limit?: number; project?: string }): Promise<unknown[]>',
+        '(text: string, options?: { conversationId?: number; limit?: number; project?: string; chapter?: string }): Promise<unknown[]>',
       execute: read('search', 1),
     },
     {

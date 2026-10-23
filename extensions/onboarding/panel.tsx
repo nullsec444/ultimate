@@ -33,6 +33,7 @@ import {
   useDescribed,
 } from './parts.tsx'
 import { AdoptProjectSetupAction, DecideAction, DetailsAction, SetExtensionAction } from './refs.ts'
+import { switchScope } from './choices.tsx'
 
 type Scope = 'project' | 'user'
 
@@ -484,7 +485,7 @@ export function ExtensionsPanel() {
   if (!system)
     return <div className="p-3 font-mono text-[11.5px] text-muted-foreground">connecting…</div>
   const local = system.project.decision === true
-  const scope: Scope = local ? (chosen ?? 'project') : 'user'
+  const scope: Scope = switchScope(local, chosen)
   const file =
     scope === 'project'
       ? elidePath(

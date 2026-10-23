@@ -29,6 +29,14 @@ import type { ModelsResponse } from '../../../shared/protocol.ts'
 import { ExtensionBoundary, Slot } from './boundary.tsx'
 import { composerRenderers, inboxRenderer } from '../sdk/registry.ts'
 import { column } from './layout.ts'
+import {
+  atFirstLine,
+  mergedSteer,
+  previewParts,
+  recallQueued,
+  recalledText,
+  withdrawQueuedSteer,
+} from './queued.ts'
 
 const alt = isMac ? '⌥' : 'Alt'
 
@@ -49,6 +57,17 @@ function inboxText(item: InboxItem): string {
   return typeof content === 'string'
     ? content
     : content.flatMap((block) => (block.type === 'text' ? [block.text] : ['[image]'])).join(' ')
+}
+
+/** A queued text on one line that keeps its start and its end: the head gives way, the tail always shows. */
+function QueuedPreview({ text }: { text: string }) {
+  const parts = previewParts(text)
+  return (
+    <span className="flex min-w-0 flex-1" title={text}>
+      <span className="min-w-0 truncate">{parts.head}</span>
+      {parts.tail && <span className="shrink-0 whitespace-pre">{parts.tail}</span>}
+    </span>
+  )
 }
 
 /** Steers and follow-ups waiting for the run, as Pi lists them above its editor. */
@@ -91,9 +110,7 @@ function Inbox({ items }: { items: readonly InboxItem[] }) {
               <span className="shrink-0 text-foreground/80">
                 {item.mode === 'steer' ? 'steer' : 'follow-up'}
               </span>
-              <span className="min-w-0 flex-1 truncate" title={inboxText(item)}>
-                {inboxText(item)}
-              </span>
+              <QueuedPreview text={inboxText(item)} />
               {cancellation}
             </div>
           )
@@ -110,6 +127,11 @@ function Inbox({ items }: { items: readonly InboxItem[] }) {
             </ExtensionBoundary>
           )
         })}
+      </div>
+      <div className="mt-0.5 flex justify-end text-[11px] text-muted-foreground/70 pointer-coarse:hidden">
+        <span>
+          <Kbd>↑</Kbd> edit queued
+        </span>
       </div>
       {error && <p className="mt-1 text-error">{error}</p>}
     </div>
@@ -201,6 +223,7 @@ function clearDraft(
 
 function ConversationComposer({ dock }: { dock?: boolean }) {
   const { id, agent, busy, loading, inbox } = useConversation()
+  const queued = inbox.filter((item) => item.mode !== 'write')
   const scoped = useContext(ConversationIdContext)
   const target = useContext(ComposerTargetContext)
   const intro = useIntro()
@@ -239,25 +262,59 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
       return
     }
     draft.set({ sending: true, error: undefined })
+    const mode = busy ? (whenBusy ?? 'steer') : undefined
+    let input = { text: text.trim(), images }
+    let previous: typeof input | undefined
     try {
-      if (target) await target.send(text.trim())
+      if (target) await target.send(input.text)
       else {
+        // A steer queued behind another joins it as one: the run reads a single steer at its next boundary.
+        previous = mode === 'steer' ? await withdrawQueuedSteer(api, id, inbox) : undefined
+        if (previous) input = mergedSteer(previous, input)
         // Sending means following the run from here, wherever the reader had scrolled to.
         events.emit('ultimate:sent', { conversationId: id })
-        await api.submit(text.trim(), busy ? (whenBusy ?? 'steer') : undefined, id, images)
+        await api.submit(input.text, mode, id, input.images)
       }
       clearDraft(draft, submitted)
       if (draft.get().images === submitted.images) draft.set({ images: [] })
     } catch (failure) {
       if (key && draft.get().revision === submitted.revision)
         draft.set({ text: localStorage.getItem(key) ?? '' })
+      // A steer withdrawn for a merge that then failed to send would be lost: it comes back into the draft.
+      if (previous) {
+        update(mergedSteer(previous, { text: draft.get().text, images: [] }).text)
+        setImages((current) => [...previous!.images, ...current])
+      }
+      setError(errorMessage(failure))
+    } finally {
+      draft.set({ sending: false })
+    }
+  }
+  /** ↑ on the first line brings every queued input back into the editor to edit and send again. */
+  async function recall() {
+    if (loading || draft.get().sending || id === undefined || queued.length === 0) return
+    draft.set({ sending: true, error: undefined })
+    try {
+      const recalled = await recallQueued(api, id, queued)
+      update(recalledText(draft.get().text, recalled))
+      setImages((current) => [...current, ...recalled.flatMap((input) => input.images)])
+    } catch (failure) {
       setError(errorMessage(failure))
     } finally {
       draft.set({ sending: false })
     }
   }
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'ArrowUp' && !target && queued.length > 0) {
+      const { value, selectionStart } = event.currentTarget
+      if (!atFirstLine(value, selectionStart)) return
+      event.preventDefault()
+      // oxlint-disable-next-line typescript/no-floating-promises -- recall catches failures and displays them in the draft's error state.
+      void recall()
+      return
+    }
+    if (event.key !== 'Enter' || event.shiftKey) return
     // A touch keyboard's return key writes a new line; the send button sends.
     if (touchKeyboard()) return
     event.preventDefault()

@@ -1,6 +1,7 @@
 /**
  * Lineage for other extensions' browser code: the project's roots, a root's tally, landing links and compaction, the
- * branch and root events, and the point where an empty root shows how to start (onboarding's Start here card).
+ * branch and root events, the point where an empty root shows how to start (onboarding's Start here card), and the
+ * Memory panel's header point.
  */
 import type { ReactNode } from 'react'
 import { definePoint, getState, useDocOf } from '@/sdk'
@@ -28,6 +29,9 @@ export const column = (dock?: boolean) =>
 export const EmptyRoot = definePoint<{ id: number; dock?: boolean }, ReactNode>(
   'lineage.empty-root',
 )
+
+/** What the Memory panel shows above the memories (`dream` provides its Dream button). */
+export const MemoryHeader = definePoint<null, ReactNode>('lineage.memory-header')
 
 /** Conversation 1 keeps the `lineage.roots` document. */
 const keeper = 1

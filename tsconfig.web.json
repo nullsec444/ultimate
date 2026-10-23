@@ -26,6 +26,7 @@
     "extensions/*/refs.ts",
     "extensions/messages/caller.ts",
     "extensions/conversations/types.ts",
+    "extensions/dream/types.ts",
     "extensions/lineage/types.ts",
     "extensions/questions/types.ts",
     "extensions/conversations/summary-model-ref.ts",

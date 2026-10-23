@@ -99,11 +99,16 @@ export const Rewound = defineEvent<{
 }>('lineage.rewound')
 
 /**
- * A branch started: conversation `id` forked from `from` at entry `at`, its prompt `intent`. Emitted in the forking
- * commit, before the branch's first run; react to it to set up a new branch's own state.
+ * A branch started: conversation `id` forked from `from` at entry `at`, its prompt `intent` and, when its starter gave
+ * one, its `title`. Emitted in the forking commit, before the branch's first run; react to it to set up a new branch's
+ * own state.
  */
-export const Branched = defineEvent<{ id: number; from: number; at: number; intent: string }>(
-  'lineage.branched',
-)
+export const Branched = defineEvent<{
+  id: number
+  from: number
+  at: number
+  intent: string
+  title?: string
+}>('lineage.branched')
 /** A root was created: conversation `id`, titled `intent`. Emitted in the creating commit. */
 export const Rooted = defineEvent<{ id: number; intent: string }>('lineage.rooted')

@@ -106,7 +106,11 @@ it.concurrent('ships a resident Ultimate definition with valid tools; standing a
   expect(definition.resident).toBe(true)
   const ultimate = await f.subagents.standing('ultimate', context)
   const agent = await (await f.server.harness.conversation(ultimate, context))!.agent(context)
-  expect(agent.tools.map((tool) => tool.name).toSorted()).toEqual(definition.tools!.toSorted())
+  // The minimal fork deliberately omits these optional extensions; their named tools stay unavailable.
+  const removed = ['debug', 'restart', 'subscription', 'web_fetch', 'web_search']
+  expect(agent.tools.map((tool) => tool.name).toSorted()).toEqual(
+    definition.tools!.filter((name) => !removed.includes(name)).toSorted(),
+  )
   // debug is deferred: @ultimate names it, the root agent does not get it.
   expect(definition.tools).toContain('debug')
   const rootTools = (await f.server.root.agent(context)).tools.map((tool) => tool.name)
@@ -251,7 +255,12 @@ it.concurrent('starts a lineage branch with a message input and caller attributi
     ;(await tx.doc(Roots, ROOT_CONVERSATION_ID)).roots = []
   }, context)
   await ask(f.server, ultimate, 'BRANCH ' + JSON.stringify({ prompt: 'No roots', isolated: false }))
-  expect(f.requests.some((text) => text.includes('Choose a root. Roots: (none)'))).toBe(true)
+  // The refusal is a tool result in @ultimate's transcript; a note may join the same request after it.
+  await until(async () =>
+    (await entries(f.server, ultimate)).some((entry) =>
+      JSON.stringify(entry).includes('Choose a root. Roots: (none)'),
+    ),
+  )
 })
 
 it.concurrent('refreshes standing definitions for numeric-address deliveries', async () => {

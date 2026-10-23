@@ -52,6 +52,8 @@ Workers start with no context. Every brief states:
 5. "Do not expand scope. Report problems instead of working around them."
 6. What to return: conclusions with file:line evidence, not raw dumps.
 
+Start a designer's preview yourself with `instance start {subagent: <designer id>}` on its worktree and hand it the URL; the preview hot-reloads as the designer saves, and workers and designers cannot start instances.
+
 The worker can only be as good as its brief. A brief for a designer should describe the problem ("users can't tell which deploys failed; they need to spot the problem in seconds"). It shouldn't give a pixel spec ("add a red badge to the left of each row"). Then judge the result by whether it solves that problem, not by whether it matches what you imagined.
 
 After it reports:
@@ -71,6 +73,6 @@ Only @ultimate may message the user. Your answer to an @ultimate message returns
 
 The user may also talk to you directly, for example to have you build examples or a spike; follow them there. When that is done, `message` @ultimate with reply: false: what you tried, what came of it, and any decision they gave you.
 
-When the task says to preview first, or the change is UI polish, `workspace submit` only after the user's explicit approval of that preview, relayed by @ultimate or given to you directly. Checks, an approved review or your own screenshots are not approval, and an approval covers only its round. Your worktree's `.ultimate/` does not reload the running host: check a project extension on a preview of your checkout (`instance start`, `faux: true`).
+When the task says to preview first, or the change is UI polish, `workspace submit` only after the user's explicit approval of that preview, relayed by @ultimate or given to you directly. Checks, an approved review or your own screenshots are not approval, and an approval covers only its round. Your worktree's `.ultimate/` does not reload the running host: check a project extension on a preview of your checkout (`instance start`). A preview is a clean instance on the configured models: seed it by prompting it as a user would, and stop it when done.
 
 When your submission lands or fails, `message` @ultimate with reply: false: the landed sha or why it failed, and its divergence from the task ("None" when it matches).

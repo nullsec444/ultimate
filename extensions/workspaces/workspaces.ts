@@ -305,49 +305,53 @@ export function workspaces(host: Host) {
         const workspace = (await get(task.input.id, context))!
         let created = false
         try {
-          const registered = (await git(workspace.source, 'worktree', 'list', '--porcelain'))
-            .split('\n\n')
-            .find((entry) => entry.split('\n').includes(`worktree ${workspace.path}`))
-          const resumed = await runtime.memo<boolean>('started', context)
-          if (registered) {
-            if (
-              !resumed ||
-              !registered.split('\n').includes(`branch refs/heads/${workspace.branch}`)
-            )
-              throw new Error(`Workspace path already exists: ${workspace.path}`)
-          } else {
-            if (
-              await lstat(workspace.path).catch((error: NodeJS.ErrnoException) => {
-                if (error.code !== 'ENOENT') throw error
-                return undefined
-              })
-            )
-              throw new Error(`Workspace path already exists: ${workspace.path}`)
-            if (await git(workspace.source, 'branch', '--list', workspace.branch)) {
+          // Git reads every `.git/worktrees/<name>` on list and add, and fails on one a concurrent add has only half
+          // written ("failed to read .git/worktrees/<name>/locked"), so preparations of one source take turns.
+          await serial(workspace.source, async () => {
+            const registered = (await git(workspace.source, 'worktree', 'list', '--porcelain'))
+              .split('\n\n')
+              .find((entry) => entry.split('\n').includes(`worktree ${workspace.path}`))
+            const resumed = await runtime.memo<boolean>('started', context)
+            if (registered) {
               if (
-                !task.input.reset &&
-                (!resumed ||
-                  (await git(workspace.source, 'rev-parse', workspace.branch)) !== workspace.base)
+                !resumed ||
+                !registered.split('\n').includes(`branch refs/heads/${workspace.branch}`)
               )
-                throw new Error(`Workspace branch already exists: ${workspace.branch}`)
-              if (!task.input.reset) await git(workspace.source, 'branch', '-D', workspace.branch)
+                throw new Error(`Workspace path already exists: ${workspace.path}`)
+            } else {
+              if (
+                await lstat(workspace.path).catch((error: NodeJS.ErrnoException) => {
+                  if (error.code !== 'ENOENT') throw error
+                  return undefined
+                })
+              )
+                throw new Error(`Workspace path already exists: ${workspace.path}`)
+              if (await git(workspace.source, 'branch', '--list', workspace.branch)) {
+                if (
+                  !task.input.reset &&
+                  (!resumed ||
+                    (await git(workspace.source, 'rev-parse', workspace.branch)) !== workspace.base)
+                )
+                  throw new Error(`Workspace branch already exists: ${workspace.branch}`)
+                if (!task.input.reset) await git(workspace.source, 'branch', '-D', workspace.branch)
+              }
+              await runtime.memo('started', true, context)
+              created = true
+              await git(
+                workspace.source,
+                'worktree',
+                'add',
+                ...(task.input.preserve
+                  ? [workspace.path, workspace.branch]
+                  : [
+                      task.input.reset ? '-B' : '-b',
+                      workspace.branch,
+                      workspace.path,
+                      workspace.base,
+                    ]),
+              )
             }
-            await runtime.memo('started', true, context)
-            created = true
-            await git(
-              workspace.source,
-              'worktree',
-              'add',
-              ...(task.input.preserve
-                ? [workspace.path, workspace.branch]
-                : [
-                    task.input.reset ? '-B' : '-b',
-                    workspace.branch,
-                    workspace.path,
-                    workspace.base,
-                  ]),
-            )
-          }
+          })
           created = true
           await setup(
             workspace.source,
@@ -362,28 +366,30 @@ export function workspaces(host: Host) {
           }, context)
         } catch (error) {
           if (runtime.signal.aborted) throw error
-          // Remove only the registered checkout created for this record, never an existing path.
-          const registered = (await git(workspace.source, 'worktree', 'list', '--porcelain'))
-            .split('\n\n')
-            .find(
-              (entry) =>
-                entry.split('\n').includes(`worktree ${workspace.path}`) &&
-                entry.split('\n').includes(`branch refs/heads/${workspace.branch}`),
-            )
-          if (created) {
-            if (registered)
-              await git(workspace.source, 'worktree', 'remove', workspace.path).catch(
-                // Best-effort rollback: the preparation error is recorded below and must not be replaced.
-                () => undefined,
+          await serial(workspace.source, async () => {
+            // Remove only the registered checkout created for this record, never an existing path.
+            const registered = (await git(workspace.source, 'worktree', 'list', '--porcelain'))
+              .split('\n\n')
+              .find(
+                (entry) =>
+                  entry.split('\n').includes(`worktree ${workspace.path}`) &&
+                  entry.split('\n').includes(`branch refs/heads/${workspace.branch}`),
               )
-            if (
-              !task.input.preserve &&
-              (await git(workspace.source, 'rev-parse', workspace.branch).catch(() => '')) ===
-                workspace.base
-            )
-              // Best-effort rollback: the preparation error is recorded below and must not be replaced.
-              await git(workspace.source, 'branch', '-D', workspace.branch).catch(() => undefined)
-          }
+            if (created) {
+              if (registered)
+                await git(workspace.source, 'worktree', 'remove', workspace.path).catch(
+                  // Best-effort rollback: the preparation error is recorded below and must not be replaced.
+                  () => undefined,
+                )
+              if (
+                !task.input.preserve &&
+                (await git(workspace.source, 'rev-parse', workspace.branch).catch(() => '')) ===
+                  workspace.base
+              )
+                // Best-effort rollback: the preparation error is recorded below and must not be replaced.
+                await git(workspace.source, 'branch', '-D', workspace.branch).catch(() => undefined)
+            }
+          })
           await runtime.commit(async (tx) => {
             const saved = (await tx.doc(Workspaces, ROOT_CONVERSATION_ID)).items[
               String(task.input.id)

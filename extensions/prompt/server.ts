@@ -236,7 +236,7 @@ export default function prompt(host: ExtensionHost) {
         const guidance: Record<string, string> = {
           read: '- read: inspect files, with offset/limit for large files.',
           bash: '- bash: run commands, tests, builds, git, and searches (rg, find, ls). Long output is truncated; the full output is saved to a file you can read. To wait or poll (CI, deploys, a server or file appearing), use interruptible: true so a steering message ends it early; keep each sleep at 30 s or less per check, and never wait in the same call as a command that changes things.',
-          edit: '- edit: change existing files with precise replacements. Each edits[].oldText must match the file exactly and be unique; keep it small. Put several changes to one file into one call; edits are matched against the original file, so never overlap them.',
+          edit: '- edit: change existing files with precise replacements. Each edits[].oldText must match the file exactly and be unique; keep it small. Put several changes to one file into one call; edits are matched against the original file, so never overlap them. After "Could not find", read the region again before retrying; after "Found N occurrences", widen oldText with surrounding lines.',
           write: '- write: create new files or rewrite one completely.',
         }
         const names = new Set((input.agent.tools ?? []).map((tool) => tool.name))

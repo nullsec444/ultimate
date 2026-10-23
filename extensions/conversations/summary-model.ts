@@ -11,10 +11,9 @@ const DEFAULT_SUMMARY_MODEL = 'openai-codex/gpt-6-luna:medium'
 /** A resolved summary model, kept in a task's memo so a resumed task asks the same one. */
 export type SummaryModel = { provider: string; id: string; thinking: ModelThinkingLevel }
 
-export type SummaryModelHost = Pick<ExtensionHost, 'userHome' | 'projectSettings' | 'notice'> &
-  Pick<Partial<ExtensionHost>, 'faux'> & {
-    modelRuntime: Pick<ExtensionHost['modelRuntime'], 'getAvailableSnapshot'>
-  }
+export type SummaryModelHost = Pick<ExtensionHost, 'userHome' | 'projectSettings' | 'notice'> & {
+  modelRuntime: Pick<ExtensionHost['modelRuntime'], 'getAvailableSnapshot'>
+}
 
 /** The configured value and where it comes from: the project's settings override the user's. */
 export async function summaryModelSetting(
@@ -48,15 +47,14 @@ export const FALLBACK_SUMMARY_MODELS = [
 
 type Available = ReturnType<SummaryModelHost['modelRuntime']['getAvailableSnapshot']>[number]
 
-/** The fallback among `available`: the first known-good one, else the cheapest; never the faux provider. */
+/** The fallback among `available`: the first known-good one, else the cheapest. */
 export function fallbackModel(available: readonly Available[]) {
-  const real = available.filter((model) => model.provider !== 'faux')
   for (const ref of FALLBACK_SUMMARY_MODELS) {
-    const found = real.find((model) => `${model.provider}/${model.id}` === ref)
+    const found = available.find((model) => `${model.provider}/${model.id}` === ref)
     if (found) return found
   }
   let best: Available | undefined
-  for (const model of real)
+  for (const model of available)
     if (!best || model.cost.input + model.cost.output < best.cost.input + best.cost.output)
       best = model
   return best
@@ -89,8 +87,6 @@ const once = (host: Pick<SummaryModelHost, 'notice'>, message: string) => {
 export async function summaryModelStatus(host: SummaryModelHost): Promise<SummaryModelStatus> {
   const { value, source } = await summaryModelSetting(host)
   const configured = typeof value === 'string' ? value : JSON.stringify(value)
-  if (host.faux && source === 'default')
-    return { model: { provider: 'faux', id: 'faux-1', thinking: 'off' }, configured, source }
   const parsed = typeof value === 'string' ? parseSummaryModel(value) : undefined
   if (!parsed) {
     once(

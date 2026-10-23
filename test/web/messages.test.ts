@@ -150,6 +150,12 @@ describe('sender accents', () => {
     expect(new Set(conversations).size).toBe(6)
     expect(conversations.map((accent) => accent.name)).not.toContain('text-brand')
   })
+  it('gives @ultimate a fixed purple apart from the palette and the remote violet', () => {
+    const ultimate = accentOf('ultimate')
+    expect(ultimate.left).toBe('border-l-purple-500/70')
+    expect([2, 3, 4, 5, 6, 7].map(accentOf)).not.toContain(ultimate)
+    expect(accentOf('remote')).not.toBe(ultimate)
+  })
 })
 
 describe('@ultimate compact mode', () => {

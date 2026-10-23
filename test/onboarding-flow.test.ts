@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { ConversationId } from '@earendil-works/pi-durable'
+import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
+import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
+import type { ConversationId, JsonObject } from '@earendil-works/pi-durable'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
 import { Memory } from '../extensions/lineage/memory.ts'
@@ -9,6 +11,71 @@ import { Tally } from '../extensions/lineage/server.ts'
 import { Starts } from '../extensions/onboarding/server.ts'
 import { context } from '../server/harness.ts'
 import { fauxServer, post, removeTemp, temp, until } from './helpers.ts'
+
+const text = (content: unknown) =>
+  typeof content === 'string'
+    ? content
+    : (content as { type: string; text?: string }[]).map((part) => part.text ?? '').join('')
+const call = (name: string, args: JsonObject) =>
+  fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: 'toolUse' })
+
+/**
+ * @ultimate's side of onboarding, scripted as the instructions ask: one setup card per choice, then read the README,
+ * write the first memories, ask what to do first, and branch the answer. Any other request gets a plain answer.
+ */
+function onboarding(project: string): FauxResponseFactory {
+  return (transcript) => {
+    const messages = transcript.messages
+    const last = messages.at(-1)!
+    const at = messages.findIndex(
+      (message) =>
+        message.role === 'user' && text(message.content).startsWith('Onboarding started.'),
+    )
+    if (at < 0) return fauxAssistantMessage('Done.')
+    const start = text(messages[at].content)
+    const since = messages.slice(at)
+    const chosen = since.filter(
+      (message) => message.role === 'user' && text(message.content).startsWith('Setup choice ('),
+    ).length
+    const said = text(last.content)
+    if (
+      last.role === 'user' &&
+      (said.startsWith('Onboarding started.') || said.startsWith('Setup choice ('))
+    )
+      return chosen < 3
+        ? call('setup', { card: ['extensions', 'project', 'git'][chosen] })
+        : call('read', { path: join(project, 'README.md') })
+    if (last.role === 'toolResult' && last.toolName === 'read')
+      return call('remember', {
+        root: 1,
+        ops: [
+          {
+            op: 'add',
+            slug: 'project-overview',
+            kind: 'fact',
+            line: 'A sample project',
+            body: 'Start at its README.',
+          },
+          {
+            op: 'add',
+            slug: 'user-instructions',
+            kind: 'decision',
+            line: 'The user’s onboarding instructions, verbatim',
+            body: start.split('User instructions:\n')[1],
+          },
+        ],
+      })
+    if (last.role === 'toolResult' && last.toolName === 'remember')
+      return fauxAssistantMessage('The first memories are written. What should we do first?')
+    if (
+      last.role === 'user' &&
+      since.some((message) => message.role === 'toolResult' && message.toolName === 'remember') &&
+      !said.startsWith('Reply from')
+    )
+      return call('branch', { root: 1, prompt: said, isolated: false })
+    return fauxAssistantMessage('Waiting.')
+  }
+}
 
 it('onboards once per root with facts, choices, reading, first memories and a coordinator', async () => {
   const home = await temp('ultimate-onboarding-flow-')
@@ -24,6 +91,12 @@ it('onboards once per root with facts, choices, reading, first memories and a co
     firstRun: true,
     localSetup: false,
   })
+  const route = onboarding(project)
+  const answer: FauxResponseFactory = (...args) => {
+    server.host.faux!.appendResponses([answer])
+    return route(...args)
+  }
+  server.host.faux!.setResponses([answer])
   try {
     const instructions = 'Focus on the API.\nKeep this verbatim.'
     const start = () =>

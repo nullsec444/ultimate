@@ -20,6 +20,7 @@ export type Definition = {
   model?: ModelRef
   thinking?: string
   tools?: string[]
+  denyTools?: string[]
   isolate?: 'none' | 'worktree'
   resident?: boolean
   onFailure?: 'diagnose' | 'fix'
@@ -54,6 +55,7 @@ export type DefinitionFields = {
   model?: string
   thinking?: string
   tools?: string[]
+  denyTools?: string[]
   isolate?: 'none' | 'worktree'
   resident?: boolean
   onFailure?: 'diagnose' | 'fix'

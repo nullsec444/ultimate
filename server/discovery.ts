@@ -4,7 +4,7 @@ import { discoveryRoots } from './project.ts'
 import type { Source } from './project.ts'
 import { useProjectSetup } from './project-setup.ts'
 import { extensionSettings } from './extension-settings.ts'
-import { coreTier } from '../shared/extension-api.ts'
+import { coreTier, defaultOff } from '../shared/extension-api.ts'
 
 const sourceOrder = { builtin: 0, user: 1, project: 2 }
 
@@ -72,7 +72,10 @@ export async function discoverExtensions(
     .map((entry) => ({
       ...entry,
       // A core-tier extension stays on whatever the settings say; extension reloads report the ignored disable.
-      enabled: entry.core || (overrides.get(entry.name) ?? true),
+      enabled:
+        entry.core ||
+        (overrides.get(entry.name) ??
+          !(entry.source === 'builtin' && defaultOff.includes(entry.name))),
     }))
     .toSorted(compareExtensions)
   return Object.assign(entries, { settings })

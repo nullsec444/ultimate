@@ -42,14 +42,13 @@ it('a report notice names what failed', () => {
 
 it('compaction overrides per model, with Pi settings replacing them field by field', () => {
   const settings = SettingsManager.inMemory({
-    compaction: { modelOverrides: { 'faux/faux-1': { keepRecentTokens: 9000 } } },
+    compaction: { modelOverrides: { 'openai-codex/gpt-6.1-sol': { keepRecentTokens: 9000 } } },
   })
   const { modelOverrides } = createHarnessSettings(settings, () => []).compaction!
-  expect(modelOverrides?.['faux/faux-1']).toEqual({
-    reserveTokens: 16384,
+  expect(modelOverrides?.['openai-codex/gpt-6.1-sol']).toEqual({
+    reserveTokens: 32768,
     keepRecentTokens: 9000,
-    backgroundTokens: 32768,
+    backgroundTokens: 65536,
   })
   expect(modelOverrides?.['claude-code/claude-opus-5-5']?.backgroundTokens).toBe(131072)
-  expect(modelOverrides?.['openai-codex/gpt-6.1-sol']?.reserveTokens).toBe(32768)
 })

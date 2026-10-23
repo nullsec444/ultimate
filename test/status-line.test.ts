@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
-import { fauxAssistantMessage, fauxText } from '@earendil-works/pi-ai/providers/faux'
+import { fauxAssistantMessage, fauxText, fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { estimateMessageTokens } from '@earendil-works/pi-ai/utils/estimate'
 import { defineExtension, defineTask, LiveDoc, UsageDoc } from '@earendil-works/pi-durable'
 import type { ConversationId, EntryRecord, Tx } from '@earendil-works/pi-durable'
@@ -51,7 +51,7 @@ async function fixture() {
     ultimateRoot: await temp(),
     userHome: await temp(),
     home: await temp(),
-    faux: true,
+    faux: fauxProvider(),
   })
   prepared.registry.install(defineExtension({ name: 'status-line-fixture', tasks: [anchor] }))
   const opened = await prepared.open()

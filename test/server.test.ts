@@ -13,6 +13,7 @@ import {
   until,
   post,
   attach,
+  held,
 } from './helpers.ts'
 import { context } from '../server/harness.ts'
 import { UiState } from '../server/ui-state.ts'
@@ -355,9 +356,6 @@ export default host => { host.resource('cleanup.process',()=>{
     } finally {
       view.dispose()
     }
-    await expect(readFile(join(server.host.home, 'demo.txt'))).rejects.toMatchObject({
-      code: 'ENOENT',
-    })
   })
   it('scans committed submissions newest first, filtered and paged', async () => {
     const { server } = await fixture(false, undefined, true)
@@ -412,7 +410,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('withdraws one queued input without aborting the current run or another conversation', async () => {
     const { server } = await fixture()
-    holdResponse(server)
+    server.host.faux!.setResponses([held, fauxAssistantMessage('Complete')])
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     const run = (await server.harness.snapshot(LiveDoc, server.root.id, context))?.run?.taskId
     expect(run).toBeDefined()
@@ -439,7 +437,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('stops the run but keeps queued follow-ups, delivering them before the next input', async () => {
     const { server } = await fixture()
-    holdResponse(server)
+    server.host.faux!.setResponses([held, held])
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     const run = (await server.harness.snapshot(LiveDoc, server.root.id, context))?.run?.taskId
     expect(run).toBeDefined()
@@ -471,7 +469,7 @@ export default host => { host.resource('cleanup.process',()=>{
   })
   it('records each typed input as one user.input event with its device and never its text', async () => {
     const { server } = await fixture()
-    holdResponse(server)
+    server.host.faux!.setResponses([held])
     const submit = (text: string, whenBusy?: string) =>
       fetch(server.url + '/api/conversations/1/submit', {
         method: 'POST',
@@ -651,7 +649,18 @@ export default host => { host.resource('cleanup.process',()=>{
       'view',
     ])
     expect(await (await fetch(server.url)).text()).toContain('Ultimate server is running')
-    const result = await post(server, '/api/conversations/1/submit', { text: 'demo' })
+    const file = join(server.host.home, 'scratch.txt')
+    server.host.faux!.setResponses([
+      fauxAssistantMessage([fauxToolCall('bash', { command: `printf 'before\\n' > '${file}'` })], {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage(
+        [fauxToolCall('edit', { path: file, edits: [{ oldText: 'before', newText: 'after' }] })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage('## Complete'),
+    ])
+    const result = await post(server, '/api/conversations/1/submit', { text: 'edit the file' })
     expect(result.status).toBe(202)
     await server.harness.waitForIdle(context)
     const state = await server.root.viewState(context)
@@ -665,7 +674,7 @@ export default host => { host.resource('cleanup.process',()=>{
     expect(replica).toEqual(state.value)
     state.dispose()
     expect(replica.entries.filter((entry) => entry.kind === 'pi.tool-result')).toHaveLength(2)
-    expect(await readFile(join(server.host.home, 'demo.txt'), 'utf8')).toBe('after\n')
+    expect(await readFile(file, 'utf8')).toBe('after\n')
     await stream.close()
   })
   it('persists image-only and mixed inputs and validates image requests', async () => {
@@ -748,6 +757,7 @@ export default host => { host.resource('cleanup.process',()=>{
     const { server } = await fixture()
     holdResponse(server)
     const image = { data: 'aGVsbG8=', mimeType: 'image/png' }
+    server.host.faux!.setResponses([held])
     await post(server, '/api/conversations/1/submit', { text: 'start' })
     expect((await server.harness.snapshot(LiveDoc, server.root.id, context))?.run).toBeDefined()
     for (const whenBusy of ['steer', 'followUp']) {

@@ -71,7 +71,7 @@ export function resolveProject(
 }
 
 /** This machine's name: the cloud's `machine` setting, else the host name. */
-export async function machineName(host: Pick<ExtensionHost, 'userHome' | 'faux' | 'notice'>) {
+export async function machineName(host: Pick<ExtensionHost, 'userHome' | 'notice'>) {
   return (await cloudConfig(host))?.machine ?? hostname()
 }
 

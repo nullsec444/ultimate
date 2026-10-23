@@ -402,7 +402,7 @@ export async function createApi(
           return true
         }
         if (request.method === 'GET' && url.pathname === '/api/models') {
-          json(200, await listModels(host.modelRuntime, host.faux))
+          json(200, await listModels(host.modelRuntime))
           return true
         }
         if (request.method !== 'POST') throw new HttpError(404, 'Unknown endpoint')

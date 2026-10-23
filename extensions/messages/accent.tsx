@@ -39,7 +39,14 @@ const user: Accent = {
   name: 'text-brand',
 }
 
-/** Another project's Ultimate: a violet the conversation palette never uses. */
+/** @ultimate, the same purple in every chapter, so its bubbles are always recognisable. */
+const ultimate: Accent = {
+  left: 'border-l-purple-500/70',
+  fill: 'bg-purple-500/10',
+  name: 'text-purple-700 dark:text-purple-300',
+}
+
+/** Another project's Ultimate: a violet the conversation palette never uses, bluer than @ultimate's purple. */
 const remote: Accent = {
   left: 'border-l-violet-500/70',
   fill: 'bg-violet-500/10',
@@ -54,8 +61,14 @@ export function accentIndex(id: number, size: number) {
 }
 
 /**
- * The accent of a sender: the user always has the brand colour, another project's Ultimate violet, a conversation a
- * stable slot of a small palette.
+ * The accent of a sender: the user always has the brand colour, @ultimate purple, another project's Ultimate violet,
+ * a conversation a stable slot of a small palette.
  */
-export const accentOf = (id: number | 'user' | 'remote'): Accent =>
-  id === 'user' ? user : id === 'remote' ? remote : palette[accentIndex(id, palette.length)]
+export const accentOf = (id: number | 'user' | 'ultimate' | 'remote'): Accent =>
+  id === 'user'
+    ? user
+    : id === 'ultimate'
+      ? ultimate
+      : id === 'remote'
+        ? remote
+        : palette[accentIndex(id, palette.length)]

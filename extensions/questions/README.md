@@ -67,10 +67,3 @@ Both are user-only.
   starts. A message that is no longer open is refused.
 
 Retired transcript question and answer entries are hidden rather than exposing their raw JSON.
-
-## Faux
-
-On a faux instance, open @ultimate (Agents tab → ultimate) and type `questions demo`: @ultimate messages the user with
-a confirmation and a recommended choice, then says `Sent.`; the card appears under the message and in the panel.
-Extraction uses the faux model by default (explicit summary-model settings still win), and an answer gets the scripted
-reply without tokens.

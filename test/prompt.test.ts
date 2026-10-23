@@ -4,7 +4,7 @@ import { expect, it, vi } from 'vitest'
 import { context } from '../server/harness.ts'
 import { fauxServer, temp, removeTemp, until } from './helpers.ts'
 
-it('renders only enabled guidance, lists off building blocks, and adds self guidance live', async () => {
+it('renders only enabled guidance, lists off building blocks, and adds browser guidance live', async () => {
   const home = await temp()
   vi.stubEnv('PI_CODING_AGENT_DIR', join(home, 'pi'))
   // Pi's personal instructions and skills stay with Pi; Ultimate's come from ~/.ultimate.
@@ -23,7 +23,7 @@ it('renders only enabled guidance, lists off building blocks, and adds self guid
   const projectRoot = join(home, 'project')
   await mkdir(join(projectRoot, '.ultimate'), { recursive: true })
   const settings = join(projectRoot, '.ultimate/settings.json')
-  await writeFile(settings, JSON.stringify({ extensions: { disable: ['self'] } }))
+  await writeFile(settings, JSON.stringify({ extensions: { disable: ['browser-use'] } }))
   const server = await fauxServer({
     ultimateRoot: resolve('.'),
     projectRoot,
@@ -35,7 +35,7 @@ it('renders only enabled guidance, lists off building blocks, and adds self guid
       const agent = await server.root.agent(context)
       const sections: Record<string, string> = {}
       for (const extension of server.host.registry.snapshot().installed()) {
-        if (!['prompt', 'self'].includes(extension.name)) continue
+        if (!['prompt', 'browser-use'].includes(extension.name)) continue
         for (const section of extension.sections ?? []) {
           const value = await section.render(
             {
@@ -51,16 +51,17 @@ it('renders only enabled guidance, lists off building blocks, and adds self guid
       return sections
     }
     const withoutSelf = await render()
-    expect(withoutSelf.self).toBeUndefined()
-    expect(withoutSelf.building_blocks).toContain('- self:')
+    expect(withoutSelf.browser_use).toBeUndefined()
+    expect(withoutSelf.building_blocks).toContain('- browser-use:')
 
     await writeFile(settings, '{}')
     server.vite.watcher.emit('change', settings)
-    await until(() => !!server.host.registry.snapshot().extension('self'))
+    await until(() => !!server.host.registry.snapshot().extension('browser-use'))
     const withSelf = await render()
-    expect(withSelf.self).toBeDefined()
-    // Every built-in is on, so nothing is left to list.
-    expect(withSelf.building_blocks).toBeUndefined()
+    expect(withSelf.browser_use).toBeDefined()
+    // Only the default-off built-ins are left to list.
+    expect(withSelf.building_blocks).not.toContain('- browser-use:')
+    expect(withSelf.building_blocks).toContain('- health:')
 
     const checkout = join(home, 'isolated-work')
     await mkdir(checkout)

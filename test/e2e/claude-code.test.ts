@@ -230,7 +230,6 @@ if (process.argv.includes('status')) {
       home: join(home, 'state'),
       userHome: home,
       port: 0,
-      faux: false,
     }
     let server = await createServer(options)
     const messages = async () =>

@@ -46,7 +46,7 @@ export class ActionError extends Error {
 export const actionMessage = (error: ActionError) =>
   `${error.extension}/${error.action}: ${error.message}`
 
-class HttpError extends Error {
+export class HttpError extends Error {
   readonly status: number
   constructor(status: number, message: string) {
     super(message)

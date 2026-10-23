@@ -27,7 +27,6 @@ import {
   useConversations,
   useDoc,
   useDocOf,
-  useUiState,
   useUltimate,
   useViewport,
 } from '@/sdk'
@@ -37,6 +36,7 @@ import { UnderUltimate } from '../sidebar/ui.tsx'
 import { createEndings, endings, frontSide, openSides, togglesSideMode } from './logic.ts'
 import { DiscardAction, InjectAction, OpenAction, SideChatDoc, SideChatsDoc } from './refs.ts'
 import type { SideChatIndex, SideChatSummary } from './refs.ts'
+import { useSideChatFront as useFront } from './ui.tsx'
 
 // ---- state ---------------------------------------------------------------------------------------------------------
 
@@ -58,9 +58,6 @@ const useSideMode = () =>
 
 /** Each side chat's ending in flight and its last failure. */
 const sideEndings = createEndings(errorMessage)
-
-/** The side chat in front of main, by id; durable UI state, so a reload brings the depth view back. */
-const useFront = () => useUiState<number | null>('ext.side-chat.front', null)
 
 /** @ultimate's conversation id, and the side chats it has. */
 function useMain() {

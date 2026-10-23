@@ -1,19 +1,14 @@
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
-import type { FauxProviderHandle } from '@earendil-works/pi-ai/providers/faux'
 import { isModelType } from '@earendil-works/pi-ai/models'
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import type { ModelsResponse } from '../shared/protocol.ts'
 
-export async function listModels(
-  runtime: ModelRuntime,
-  faux?: FauxProviderHandle,
-): Promise<ModelsResponse> {
+export async function listModels(runtime: ModelRuntime): Promise<ModelsResponse> {
   const available = new Set(
     (await runtime.getAvailable()).map((model) => `${model.provider}/${model.id}`),
   )
-  if (faux) available.add('faux/faux-1')
   return {
-    providers: [...runtime.getProviders(), ...(faux ? [faux.provider] : [])].map((provider) => ({
+    providers: runtime.getProviders().map((provider) => ({
       id: provider.id,
       name: provider.auth.oauth?.name ?? provider.auth.apiKey?.name ?? provider.id,
       authTypes: [
@@ -24,11 +19,11 @@ export async function listModels(
           ? [{ type: 'oauth' as const, name: provider.auth.oauth.name }]
           : []),
       ],
-      status:
-        provider.id === 'faux' ? { configured: true } : runtime.getProviderAuthStatus(provider.id),
+      status: runtime.getProviderAuthStatus(provider.id),
       isUsingSubscription: runtime.isUsingSubscription(provider.id),
     })),
-    models: [...runtime.getAllModels(), ...(faux?.models ?? [])]
+    models: runtime
+      .getAllModels()
       .filter((model) => isModelType(model, 'chat'))
       .map((model) => ({
         provider: model.provider,

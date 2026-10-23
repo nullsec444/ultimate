@@ -21,10 +21,10 @@ async function userCloudSettings(host: Pick<ExtensionHost, 'userHome'>) {
 
 /** Only user settings may select the cloud: a repository must not redirect the user's history. */
 export async function cloudConfig(
-  host: Pick<ExtensionHost, 'userHome' | 'faux' | 'notice'>,
+  host: Pick<ExtensionHost, 'userHome' | 'notice'>,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ url: string; token: string; machine: string } | undefined> {
-  if (!env.ULTIMATE_CLOUD_URL && (host.faux || env.ULTIMATE_INSTANCE_OWNER)) return undefined
+  if (!env.ULTIMATE_CLOUD_URL && env.ULTIMATE_INSTANCE_OWNER) return undefined
   const config = await userCloudSettings(host)
   const url = env.ULTIMATE_CLOUD_URL ?? (typeof config.url === 'string' ? config.url : undefined)
   if (!url) return undefined

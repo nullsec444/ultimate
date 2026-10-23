@@ -41,7 +41,7 @@ Every machine keeps its own logins: never copy `auth.json` between machines. OAu
 
 ## Real usage
 
-A `GenerationTask` `afterResponse` hook records every terminal provider message at no cost: `stopReason: 'error'` records a failure with `errorMessage`, `aborted` nothing, anything else a success. The write never blocks or fails the generation. A faux server records nothing.
+A `GenerationTask` `afterResponse` hook records every terminal provider message at no cost: `stopReason: 'error'` records a failure with `errorMessage`, `aborted` nothing, anything else a success. The write never blocks or fails the generation.
 
 ## In backups
 

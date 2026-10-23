@@ -103,7 +103,7 @@ export function summary(value: unknown) {
 }
 
 /** The call trace of one home: open while the harness is, a no-op recorder otherwise. */
-export function callTrace(file: string, retention = { rows: 200_000, days: 7 }) {
+export function callTrace(file: string | (() => string), retention = { rows: 200_000, days: 7 }) {
   let database: DatabaseSync | undefined
   let insert: ReturnType<DatabaseSync['prepare']> | undefined
   let buffer: unknown[][] = []
@@ -305,13 +305,13 @@ export function callTrace(file: string, retention = { rows: 200_000, days: 7 }) 
     keep: (context: EventContext | undefined) => unmark(context?.parentCall),
     /** How many running calls are marked as skippable polls; 0 whenever no call runs. */
     marked: () => marked.size,
-    /** Open `<home>/trace.sqlite` and apply retention, then hourly; a failure leaves tracing off. */
+    /** Open the trace file (the active chapter's) and apply retention, then hourly; a failure leaves tracing off. */
     open() {
       if (database) return
       written.clear()
       polls.clear()
       try {
-        database = new DatabaseSync(file)
+        database = new DatabaseSync(typeof file === 'string' ? file : file())
         database.exec(`PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, parent TEXT, trace TEXT NOT NULL, at REAL NOT NULL,
   ms REAL NOT NULL, caller TEXT NOT NULL, callee TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL,

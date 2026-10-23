@@ -39,7 +39,7 @@ import { talkToUltimate } from '../subagents/ui.tsx'
 import { Open } from '../workspaces/ui.tsx'
 import { CompactAction, ForgetAction, MemoryDoc, TallyDoc } from './refs.ts'
 import type { MemoryItem } from './refs.ts'
-import { column, EmptyRoot, MEMORY_PANEL, useRoots } from './ui.tsx'
+import { column, EmptyRoot, MEMORY_PANEL, MemoryHeader, useRoots } from './ui.tsx'
 import { GoBackAction, Rewound, RewoundDependent } from './rewind.tsx'
 
 function userText(entry: EntryRecord) {
@@ -216,44 +216,42 @@ function Abstract({ entry }: { entry: EntryRecord }) {
   )
 }
 
+/**
+ * In a compact transcript these notes are background, folded into a group whose line already names them. When the note
+ * is the group's only row, opening it shows the content directly: the card's header goes.
+ */
+const soleRowHeader = 'group-data-[compact-quiet=1]/quiet:hidden'
+
 /** A conversation this one asked `notify` about has finished: its title and last answer. */
 function Finished({ entry }: { entry: EntryRecord }) {
   const { switchConversation } = useUltimate()
   const { from, title, text } = entry.data as { from: number; title?: string; text: string }
   return (
-    <Fold
-      card={entry.id}
-      summary={
-        <>
-          <CircleCheckIcon className="size-3 shrink-0 text-success" />
-          <span className="flex min-w-0 text-foreground/80">
-            <ConversationRef id={from} title={title} />
-          </span>
-          <span className="shrink-0">finished</span>
-        </>
-      }
+    <section
+      className="min-w-0 rounded-md border border-l-2 border-border border-l-success/70 bg-muted/20"
+      data-lineage-finished={from}
     >
-      <section
-        className="min-w-0 rounded-md border border-l-2 border-border border-l-success/70 bg-muted/20"
-        data-lineage-finished={from}
+      <header
+        className={cn(
+          'flex min-w-0 items-center gap-2 border-b border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground',
+          soleRowHeader,
+        )}
       >
-        <header className="flex min-w-0 items-center gap-2 border-b border-border/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
-          <CircleCheckIcon className="size-3.5 shrink-0 text-success" />
-          <button
-            className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-foreground hover:underline"
-            onClick={() => switchConversation(from)}
-            title={`Open #${from}`}
-            type="button"
-          >
-            <ConversationRef id={from} title={title} />
-            <span className="shrink-0">finished</span>
-          </button>
-        </header>
-        <div className="min-w-0 px-3 py-2.5 text-[13px] leading-relaxed">
-          <MessageResponse>{text}</MessageResponse>
-        </div>
-      </section>
-    </Fold>
+        <CircleCheckIcon className="size-3.5 shrink-0 text-success" />
+        <button
+          className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-foreground hover:underline"
+          onClick={() => switchConversation(from)}
+          title={`Open #${from}`}
+          type="button"
+        >
+          <ConversationRef id={from} title={title} />
+          <span className="shrink-0">finished</span>
+        </button>
+      </header>
+      <div className="min-w-0 px-3 py-2.5 text-[13px] leading-relaxed">
+        <MessageResponse>{text}</MessageResponse>
+      </div>
+    </section>
   )
 }
 
@@ -275,7 +273,12 @@ function NoteCard({
       className="min-w-0 rounded-md border border-l-2 border-note/25 border-l-note/60 bg-note/6"
       data-lineage-note={note}
     >
-      <header className="flex min-w-0 items-center gap-2 border-b border-note/15 px-3 py-2 font-mono text-[11px] text-foreground">
+      <header
+        className={cn(
+          'flex min-w-0 items-center gap-2 border-b border-note/15 px-3 py-2 font-mono text-[11px] text-foreground',
+          note === 'received' && soleRowHeader,
+        )}
+      >
         <StickyNoteIcon className="size-3.5 shrink-0 text-note" />
         {label}
         {typeof id === 'number' ? (
@@ -307,48 +310,30 @@ function Note({ entry, core }: { entry: EntryRecord; core: React.ReactNode }) {
   }
   if (source === 'lander') return core
   if (source === 'finished') return <Finished entry={entry} />
-  if (source !== 'main')
-    return (
-      <Fold
-        card={entry.id}
-        summary={
-          <>
-            <StickyNoteIcon className="size-3 shrink-0 text-note" />
-            <span className="shrink-0">Note from</span>
-            {from !== undefined && (
-              <span className="flex min-w-0 text-foreground/80">
-                <ConversationRef id={from} />
-              </span>
-            )}
-          </>
-        }
-      >
-        <NoteCard id={from} label="Note from" note="received" text={text} />
-      </Fold>
-    )
+  if (source === 'main') return <Catchup text={text} />
+  return <NoteCard id={from} label="Note from" note="received" text={text} />
+}
+
+/** A catch-up on the tally and main. */
+function Catchup({ text }: { text: string }) {
   return (
-    <Fold
-      card={entry.id}
-      summary={
-        <>
-          <GitBranchIcon className="size-3 shrink-0 text-brand" />
-          <span className="shrink-0">Catch-up</span>
-        </>
-      }
+    <section
+      className="min-w-0 rounded-md border border-l-2 border-border border-l-brand/50 bg-muted/20"
+      data-lineage-note="main"
     >
-      <section
-        className="min-w-0 rounded-md border border-l-2 border-border border-l-brand/50 bg-muted/20"
-        data-lineage-note="main"
+      <header
+        className={cn(
+          'flex items-center gap-2 border-b border-border/60 px-3 py-2 font-mono text-[11px] text-foreground',
+          soleRowHeader,
+        )}
       >
-        <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2 font-mono text-[11px] text-foreground">
-          <GitBranchIcon className="size-3.5 text-brand" />
-          Catch-up
-        </header>
-        <div className="min-w-0 px-3 py-2.5 text-[13px] leading-relaxed">
-          <MessageResponse>{text}</MessageResponse>
-        </div>
-      </section>
-    </Fold>
+        <GitBranchIcon className="size-3.5 text-brand" />
+        Catch-up
+      </header>
+      <div className="min-w-0 px-3 py-2.5 text-[13px] leading-relaxed">
+        <MessageResponse>{text}</MessageResponse>
+      </div>
+    </section>
   )
 }
 
@@ -673,6 +658,9 @@ function MemoryPanel() {
   const roots = useRoots() ?? []
   return (
     <div className="flex flex-col pb-4" data-lineage-memory-panel>
+      <Provided input={null} point={MemoryHeader}>
+        {(header) => header}
+      </Provided>
       {roots.map((root) => (
         <RootMemory key={root} label={roots.length > 1} root={root} />
       ))}

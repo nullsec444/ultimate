@@ -437,7 +437,12 @@ it('drops a poll call mark when the call ends, while closed, after a failed open
 
 it('writes a repeated poll that emits an event, with its chain, so its reactors keep their parents', async () => {
   const home = await temp()
-  const prepared = await prepareHarness({ ultimateRoot: home, userHome: home, home, faux: true })
+  const prepared = await prepareHarness({
+    ultimateRoot: home,
+    userHome: home,
+    home,
+    faux: fauxProvider(),
+  })
   const opened = await prepared.open()
   const trace = prepared.callTrace
   trace.open()

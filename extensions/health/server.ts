@@ -64,23 +64,21 @@ export default function health(host: ExtensionHost) {
         (entry) => host.modelRuntime.getProviderAuthStatus(entry.provider).configured,
       ),
   })
-  const hooks = host.faux
-    ? []
-    : [
-        hook(GenerationTask, {
-          afterResponse(message) {
-            const entry = responseEntry(message, Date.now())
-            // Only providers with a login here: a stray model reference to another fails, which is not its health.
-            if (!entry || !host.modelRuntime.getProviderAuthStatus(message.provider).configured)
-              return
-            recordHealth(host.userHome, message.provider, entry, flipped).catch(
-              (error: unknown) => {
-                // Health is advisory: a failed write must never fail or delay the agent's generation.
-                console.error('health: recording a response failed:', error)
-              },
-            )
-          },
-        }),
-      ]
-  return defineExtension({ name: 'health', hooks })
+  return defineExtension({
+    name: 'health',
+    hooks: [
+      hook(GenerationTask, {
+        afterResponse(message) {
+          const entry = responseEntry(message, Date.now())
+          // Only providers with a login here: a stray model reference to another fails, which is not its health.
+          if (!entry || !host.modelRuntime.getProviderAuthStatus(message.provider).configured)
+            return
+          recordHealth(host.userHome, message.provider, entry, flipped).catch((error: unknown) => {
+            // Health is advisory: a failed write must never fail or delay the agent's generation.
+            console.error('health: recording a response failed:', error)
+          })
+        },
+      }),
+    ],
+  })
 }

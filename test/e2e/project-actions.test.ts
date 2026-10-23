@@ -1,3 +1,4 @@
+import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 import { mkdir, rm, writeFile, symlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -59,7 +60,7 @@ it('survives invalid settings at boot and mid-run and clears errors after repair
     projectRoot,
     userHome,
     home: join(userHome, 'state'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
   servers.push(server)
@@ -99,7 +100,7 @@ it('discovers late project and user roots and follows extension symlinks with br
     projectRoot,
     userHome,
     home: join(userHome, 'state'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
   servers.push(server)
@@ -147,7 +148,7 @@ it('loads external project facets over user and built-in names, actions and tran
     projectRoot,
     userHome,
     home: join(userHome, 'state'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
   servers.push(server)
@@ -255,7 +256,7 @@ it('discovers user/project agents and skills with provenance and hot config chan
     projectRoot,
     userHome,
     home: join(userHome, 'state'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
   servers.push(server)
@@ -303,7 +304,7 @@ it('discovers clone skills live and lets project skills override them by name', 
     projectRoot,
     userHome,
     home: join(userHome, 'state'),
-    faux: true,
+    faux: fauxProvider(),
     port: 0,
   })
   servers.push(server)
